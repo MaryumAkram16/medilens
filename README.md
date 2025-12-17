@@ -1,137 +1,146 @@
 
-Medilens Full Feature Documentation
+🏥 Medilens – AI-Powered Hospital Automation Platform
+
+This repository contains the backend automation workflows for Medilens, an AI-powered hospital operations and patient assistance platform. Medilens automates complaint handling, centralizes CRM and ERP data, analyzes medical documents, provides AI-driven patient support, and enables intelligent operational decision-making.
+
+These workflows are designed to be consumed by a frontend dashboard or application via secure webhooks.
 
 
 ---
 
-Admin Dashboard Features
+📂 Repository Structure
+
+Directory/File	Description
+
+workflows/	n8n workflow JSON files for all Medilens features
+frontend/	Frontend UI files (optional)
+README.md	Project documentation
+LICENSE.md	Project license
+.gitignore	Ignored files and folders
+
+
+
+---
+
+🚀 Features
+
+Medilens is composed of multiple independent but connected automation services. Each service solves a specific hospital or patient-facing problem.
 
 
 ---
 
 Feature 1: Complaint Management
 
-Overview:
-Automates customer complaint management from submission to resolution, providing real-time visibility for support teams.
+Overview
 
-Problem:
-Manual complaint tracking is messy. Complaints get lost in emails, spreadsheets become outdated, and it’s hard to see status or responsibility. Leads to slow responses, frustrated customers, and low team visibility.
+Automates hospital complaint management from submission to resolution, providing real-time visibility for support and admin teams.
 
-Solution:
+Problem
 
-Receives complaints from a web form
+Manual complaint tracking is disorganized and unreliable. Complaints get lost in emails, spreadsheets become outdated, and teams struggle to track ownership or resolution status. This leads to delayed responses, frustrated patients, and poor operational visibility.
 
-Adds/updates in a central Google Sheet
+Solution
 
-Assigns team members
+Receives complaints through a web form
 
-Marks complaints as “solved”
+Stores and updates complaints in a central Google Sheet
 
-Provides a real-time dashboard view
+Allows admins to assign staff members
+
+Enables one-click resolution
+
+Keeps the dashboard updated in real time
 
 
-Workflow Steps:
+Workflow Steps
 
 Step	Action
 
-1	New Complaint Submission → triggers webhook
-2	Parse complaint details into structured format
-3	Add complaint as new row in “Complaints” sheet
-4	Fetch all complaints for dashboard
-5	Update “Assignee” when assigned
-6	Update “Status” to “Solved”
-7	Send confirmation to frontend
+1	New complaint submission triggers webhook
+2	Complaint details parsed into structured format
+3	Complaint added as a new row in “Complaints” sheet
+4	All complaints fetched for dashboard display
+5	Assignee updated when assigned
+6	Status updated to “Solved”
+7	Confirmation sent to frontend
 
 
-Tools Used:
+Tools Used
 
 Tool	Purpose
 
 n8n	Workflow automation
 Webhook Nodes	Receive complaint data
-Google Sheets Nodes	Read/add/update complaints
-Code Nodes	Parse/format data
+Google Sheets Nodes	Read, add, and update complaints
+Code Nodes	Parse and format data
 Respond to Webhook	Send confirmation to frontend
 
 
-Setup / Integration:
+Setup / Integration
 
-1. Import & activate workflow JSON
-
-
-2. Copy webhook URLs: /complaint?query=submit & /management?query=assign/solve
+1. Import and activate workflow JSON
 
 
-3. Frontend POST requests for submission, assignment, resolution
+2. Copy webhook URLs: /complaint?query=submit and /management?query=assign/solve
+
+
+3. Send POST requests from frontend for submission, assignment, and resolution
 
 
 
-Credentials:
+Credentials
 
 Google Sheets API (service account + JSON key)
-⚠️ Never expose webhooks publicly
+⚠️ Webhooks should never be exposed publicly.
 
 
-Estimated Monthly Cost:
+Estimated Monthly Cost
 
-Google Sheets API → $0
+Google Sheets API: $0
 
-n8n Self-hosted → $0
+n8n Self-hosted: $0
 
-n8n Cloud → $20+
+n8n Cloud: $20+
 
 
 
 ---
-
 
 Feature 2: Command Center
 
 Overview
 
-An AI-powered command center that centralizes hospital CRM and ERP operational data, analyzes risks, and generates actionable AI suggestions for admin review and approval—while keeping the dashboard and hospital overview fully updated in real time.
-
-
----
+An AI-powered command center that centralizes hospital CRM and ERP operational data, analyzes risks, and generates actionable AI suggestions for admin review and approval—while keeping the dashboard and hospital overview updated in real time.
 
 Problem
 
-Operational data such as patient risk, doctor workload, bed availability, and appointments is scattered across multiple sources. This leads to reactive decisions, inefficiencies, staff burnout, and compromised patient care.
-
-
----
+Operational data such as patient risk, doctor workload, bed availability, and appointments is spread across multiple sheets and systems. This fragmentation results in reactive decisions, inefficiencies, staff burnout, and compromised patient care.
 
 Solution
 
-Aggregates data from multiple Google Sheets into a single system
+Aggregates data from multiple Google Sheets
 
 Uses AI to analyze risks and operational gaps
 
 Generates structured AI suggestions in a central sheet
 
-Sends both AI suggestions and live operational data to the command center
+Sends AI suggestions and live operational data to the command center
 
-Enables instant admin approval or rejection with real-time system updates
+Enables instant approval or rejection with system-wide updates
 
-
-
----
 
 Workflow Steps
 
 Step	Action
 
 1	Trigger via Smarter Alert Webhook
-2	Retrieve data from 7 connected Google Sheets
-3	Merge node consolidates all operational data
-4	AI analysis (LangChain + Gemini) generates JSON-based suggestions
-5	Code node parses and appends results to “AI Suggestions” sheet
-6	Respond to webhook with AI suggestions and aggregated data
-7	Admin Approval Webhook updates status and notes across the system
+2	Retrieve data from 7 Google Sheets
+3	Merge node consolidates all data
+4	AI analysis using LangChain + Gemini
+5	Code node parses and appends suggestions
+6	Responds with suggestions and aggregated data
+7	Admin Approval Webhook updates status and notes
 
-
-
----
 
 Tools Used
 
@@ -140,19 +149,18 @@ Tool	Purpose
 n8n	Workflow orchestration
 Google Sheets (x7)	Data storage and retrieval
 Webhook Nodes	Trigger analysis and approvals
-Google Gemini Chat Model	AI risk analysis and insights
+Google Gemini Chat Model	Risk analysis and insights
 LangChain AI Agent	Structured AI output
 Merge & Code Nodes	Data consolidation and parsing
-Respond to Webhook	Send data and suggestions to dashboard
-
+Respond to Webhook	Send results to dashboard
 
 
 Setup / Integration
 
-1. Import and activate the workflow JSON in n8n
+1. Import and activate workflow JSON
 
 
-2. Prepare 7 Google Sheets and share them with the service account
+2. Share 7 Google Sheets with service account
 
 
 3. Copy Smarter Alert and Admin Approval webhook URLs
@@ -164,10 +172,10 @@ Setup / Integration
 
 Credentials
 
-Google Sheets API (service account + JSON key)
+Google Sheets API
 
-Google Gemini API (API key)
-⚠️ Webhooks should be called securely from the backend.
+Google Gemini API
+⚠️ Webhooks must be securely called from backend only.
 
 
 Estimated Monthly Cost
@@ -181,155 +189,144 @@ n8n Self-hosted: $0
 n8n Cloud: $20+
 
 
-✅ Key Outcome
-
-This workflow not only generates AI suggestions but also fetches and synchronizes all operational data, keeping the command center and hospital overview continuously updated in real time.
-
-
-Patient-Facing Features
-
 
 ---
 
 Feature 3: Lab Reports & Prescription Analyzer
 
-Overview:
-Converts medical reports and prescriptions into simple, easy-to-understand explanations.
+Overview
 
-Problem:
-Lab reports and prescriptions are full of confusing terms and numbers; patients feel lost and anxious.
+Converts complex medical reports and prescriptions into clear, easy-to-understand explanations for patients.
 
-Solution:
+Problem
 
-Reads reports/prescriptions
+Medical reports and prescriptions contain technical terms and numbers that patients struggle to understand, causing confusion and anxiety.
 
-Explains each test/medicine in plain language
+Solution
 
-Highlights normal vs attention-needed items
+Reads lab reports and prescriptions
 
-Sends structured explanation to frontend
+Explains tests and medicines in plain language
 
+Highlights normal vs attention-needed values
 
-Workflow Steps:
-
-Step	Action
-
-1	User uploads image → OCR converts to text
-2	Text sent to n8n webhook
-3	AI agent analyzes text using medical system prompt
-4	Output formatted: summary, detailed explanation, important notes
-5	Response sent back to frontend
+Sends structured explanations to frontend
 
 
-Tools Used:
+Workflow Steps
 
-Tool	Purpose
-
-n8n	Workflow orchestration
-Webhook Node	Receive extracted text
-Google Gemini Chat Model	Medical text understanding
-LangChain AI Agent	Structured analysis & explanation
-Memory Buffer	Optional session continuity
-Respond to Webhook	Send response to frontend
+1. User uploads image → OCR extracts text
 
 
-Setup / Integration:
-
-1. Import workflow JSON into n8n
+2. Text sent to n8n webhook
 
 
-2. Activate workflow → copy webhook POST URL
+3. AI agent analyzes using medical prompt
 
 
-3. Send extracted text + optional sessionId from frontend
+4. Output formatted into summary and explanations
 
 
-4. Display AI response
+5. Response returned to frontend
 
 
 
-Credentials:
+Tools Used
 
-Google Gemini API (API key)
-⚠️ Keep credentials backend-only
+n8n
+
+Google Gemini Chat Model
+
+LangChain AI Agent
+
+Webhook Nodes
+
+Respond to Webhook
 
 
-Estimated Monthly Cost:
+Estimated Monthly Cost
 
-Google Gemini API → $5–$15
+Google Gemini API: $5–$15
 
-n8n Cloud → $20+
+n8n Cloud: $20+
 
-OCR → depends on provider
+OCR: Provider-dependent
 
 
 
 ---
 
+
 Feature 4: RAG Agent with Memory & Complaint Handling
 
-Overview:
-AI chatbot providing fact-grounded hospital assistance with session memory and complaint escalation.
+Overview
 
-Problem:
-Normal chatbots hallucinate, forget conversations, and cannot escalate complaints.
+A fact-grounded hospital AI chatbot that provides reliable assistance, maintains session memory, and escalates complaints to human support when necessary.
 
-Solution:
+Problem
 
-Answers from hospital knowledge base
+Standard chatbots tend to hallucinate, forget previous conversations, and cannot escalate complaints. This creates gaps in patient support and operational oversight.
 
-Stores full chat history
+Solution
 
-Detects complaints → escalates to human support
+Answers queries from hospital knowledge base (PDFs, manuals)
+
+Maintains full chat history for context
+
+Detects complaints automatically
+
+Escalates complaints to human support if needed
+
+Logs complaints and sends email alerts to responsible teams
 
 
-Workflow Steps:
+Workflow Steps
 
 Step	Action
 
-1	Knowledge base → PDFs → embeddings → Supabase Vector Store
+1	Upload PDFs → embeddings → store in Supabase Vector Store
 2	User sends chat → webhook
-3	RAG Agent responds using vector DB & session memory
-4	Complaint detection → Google Sheets logs + Gmail alerts
-5	Human support notified if needed
+3	RAG Agent responds using vector DB + session memory
+4	Complaint detection triggers Google Sheets logging + Gmail alert
+5	Notify human support if escalation is required
 
 
-Tools Used:
+Tools Used
 
 Tool	Purpose
 
 n8n	Workflow orchestration
 Google Gemini Chat Model	AI responses
-Google Gemini Embeddings	Vector creation
-Supabase Vector Store	Knowledge base
-Postgres	Chat memory
+Google Gemini Embeddings	Vector creation for RAG agent
+Supabase Vector Store	Knowledge base storage
+Postgres	Session memory storage
 Google Drive	PDF source
 Google Sheets	Complaint logging
 Gmail	Complaint alert emails
 
 
-Setup / Integration:
+Setup / Integration
 
-1. Upload PDFs → run ingestion workflow → Supabase
-
-
-2. Configure frontend webhook
+1. Upload hospital PDFs → run ingestion workflow → populate Supabase vector store
 
 
-3. Send chatInput + sessionId
+2. Configure frontend webhook for chat input → send chatInput + optional sessionId
 
 
-4. Display chatbot response
+3. Display chatbot responses on frontend
+
+
+4. Ensure complaint detection nodes are connected to Sheets + Gmail nodes for alerts
 
 
 
-Credentials:
+Credentials
 
-Google Gemini API
+Google Gemini API (chat + embeddings)
 
 Supabase API + DB URL
 
-Postgres DB
+Postgres DB credentials
 
 Google Drive OAuth
 
@@ -338,92 +335,95 @@ Google Sheets OAuth
 Gmail OAuth
 
 
-Estimated Monthly Cost:
+⚠️ Important: Keep all credentials backend-only. Webhooks should never be exposed publicly.
 
-Google Gemini → $10–$20
+Estimated Monthly Cost
 
-Supabase → free–$25
+Google Gemini API: $10–$20
 
-n8n Cloud → $20+
+Supabase: free–$25 (depends on usage)
 
+Postgres DB: self-hosted/free depending on setup
 
-
----
-
-Feature 5: Symptom Checker & Triage
-
-Overview:
-AI-powered system for analyzing symptoms, selecting specialists, and detecting emergencies.
-
-Problem:
-Patients don’t know which doctor to see or how serious their symptoms are; hospitals need fast triage.
-
-Solution:
-
-Accepts text/voice/image input
-
-Selects correct specialist automatically
-
-Provides structured diagnosis & care guidance
-
-Detects emergencies → sends alert emails
+n8n Cloud: $20+
 
 
-Workflow Steps:
+—-
+
+Feature 5: Symptom Checker & AI Triage
+
+Overview
+
+AI-powered system for analyzing patient symptoms, selecting the appropriate specialist, and detecting emergencies.
+
+Problem
+
+Patients often do not know which specialist to consult or the severity of their symptoms. Hospitals require faster triage to ensure timely care.
+
+Solution
+
+Accepts text, voice, or image-based symptom input
+
+Automatically selects the correct specialist
+
+Provides structured diagnosis, severity level, and care guidance
+
+Detects emergencies and sends alert emails
+
+
+Workflow Steps
 
 Step	Action
 
-1	Frontend sends symptom text → webhook
+1	Frontend sends symptom text/image/voice → webhook
 2	Configure patient email, doctor email, booking URL
-3	AI Specialist Selector → chooses 1 specialist
-4	Route to corresponding specialist agent
-5	Specialist outputs structured JSON → diagnosis, severity, remedies, first aid, lifestyle
+3	AI Specialist Selector determines the correct specialist
+4	Route data to the corresponding specialist agent
+5	Specialist agent outputs structured JSON: diagnosis, severity, remedies, first aid, lifestyle
 6	JSON cleanup & normalization
-7	Emergency detection → send email alerts & booking link if needed
+7	Emergency detection → send email alerts and booking links
 
 
-Tools Used:
+Tools Used
 
 Tool	Purpose
 
 n8n Cloud	Workflow orchestration
-Google Gemini	AI reasoning
-LangChain Agents	Specialist behavior control
-Webhook API	Frontend → backend
+Google Gemini	AI reasoning for triage and specialist selection
+LangChain Agents	Specialist agent behavior control
+Webhook API	Frontend → backend integration
 Gmail OAuth	Emergency notifications
-JavaScript Node	JSON cleanup
+JavaScript Node	JSON cleanup and normalization
 Memory Buffer	Session-based context
 
 
-Setup / Integration:
+Setup / Integration
 
-1. Deploy n8n → import workflow JSON → create webhook
+1. Deploy n8n instance and import workflow JSON
 
 
 2. Connect frontend → webhook
 
 
-3. Add Google Gemini API keys
+3. Add Google Gemini API key
 
 
-4. Configure Gmail OAuth → set patient/doctor emails
+4. Configure Gmail OAuth with patient/doctor emails
 
 
-5. Test mild + emergency cases → go live
+5. Test mild and emergency cases before going live
 
 
 
-Estimated Monthly Cost:
+Estimated Monthly Cost
 
-AI calls → ~$0.001–$0.003 per user
+AI calls: ~$0.001–$0.003 per user
 
-n8n Cloud → $20–50
+n8n Cloud: $20–$50
 
-Gmail → free
+Gmail: free
 
-
-> Example: 1,000 users/month → ~$3–$5 AI cost
-
+Example: 1,000 users/month → ~$3–$5 AI cost
 
 
 
@@ -431,40 +431,42 @@ Gmail → free
 
 Feature 6: Webcalling – AI Voice Appointment System
 
-Overview:
-Automated AI voice agent for handling appointment calls.
+Overview
 
-Problem:
-Manual appointment calls cause missed calls, double bookings, staff overload, and poor patient experience.
+Automated AI voice agent for handling appointment calls, booking, cancellations, and confirmations.
 
-Solution:
+Problem
 
-Answers calls → transcribes with Retell AI
+Manual appointment calls result in missed calls, double bookings, staff overload, and poor patient experience.
 
-Extracts patient, doctor, date, intent using Gemini
+Solution
 
-Checks doctor availability → books/cancels in Calendar
+Answers calls using Retell AI
 
-Updates Sheets + sends confirmation email
+Transcribes call and extracts patient, doctor, date, and intent using Gemini
+
+Checks doctor availability and updates Google Calendar
+
+Updates Google Sheets and sends email confirmations
 
 
-Workflow Steps:
+Workflow Steps
 
 Step	Action
 
-1	Patient calls → Retell AI
+1	Patient calls → Retell AI transcribes speech
 2	Transcript sent to n8n webhook
-3	Gemini extracts patient, doctor, date, intent
-4	Check availability → update Google Calendar
+3	Gemini extracts patient, doctor, date, and intent
+4	Check doctor availability → update Google Calendar
 5	Update Google Sheets + send email confirmation
 6	Success response returned to Retell AI
 
 
-Tools Used:
+Tools Used
 
 Tool	Purpose
 
-Retell AI	Voice calling + speech-to-text
+Retell AI	Voice calling and speech-to-text
 n8n	Workflow orchestration
 Google Gemini	Intent extraction
 Google Calendar API	Appointment scheduling
@@ -472,7 +474,7 @@ Google Sheets API	Patient records
 Gmail API	Confirmation emails
 
 
-Setup / Integration:
+Setup / Integration
 
 1. Create Retell AI agent → connect to n8n webhook
 
@@ -490,13 +492,41 @@ Setup / Integration:
 
 
 
-Estimated Monthly Cost:
+Estimated Monthly Cost
 
-Retell AI → $0.10–0.30/minute (e.g., 1,000 calls × 2 min ≈ $200–$600)
+Retell AI: $0.10–$0.30/minute (e.g., 1,000 calls × 2 min ≈ $200–$600)
 
-Google Gemini → $5–$20
+Google Gemini: $5–$20
 
-n8n Self-hosted → $5–$10 / Cloud → $20+
+n8n Self-hosted: $5–$10 / Cloud: $20+
 
-Google APIs → mostly free
+Google APIs: mostly free
 
+
+
+---
+
+🔗 Summary
+
+Medilens combines multiple AI-powered workflows to provide:
+
+Operational Automation: Centralized CRM/ERP data, AI-generated suggestions, real-time dashboards
+
+Patient Support: Symptom triage, lab & prescription explanations, AI chat with memory
+
+Complaint Management: Streamlined submission, assignment, and resolution
+
+Appointment Automation: Voice AI booking system
+
+Emergency Handling: Real-time alerts for critical cases
+
+
+Together, Medilens reduces manual work, improves response times, enhances patient experience, and enables data-driven decision-making in hospitals.
+
+
+---
+
+📄 License
+
+This project is licensed under the MIT License.
+See LICENSE.md for details.
