@@ -7,6 +7,7 @@ A comprehensive, production-ready hospital operations automation platform built 
 ## Table of Contents
 
 - [Introduction](#introduction)
+- [Workflow Screenshots](#workflow-screenshots)
 - [Problem Statement](#problem-statement)
 - [Solution](#solution)
 - [System Architecture](#system-architecture)
@@ -31,6 +32,53 @@ A comprehensive, production-ready hospital operations automation platform built 
 ## Introduction
 
 Medilens is a modular, AI-first hospital automation system that replaces manual, error-prone administrative processes with intelligent, always-on workflows. Each module is a self-contained n8n workflow that can be deployed independently or together as a unified platform. The system connects hospital staff, patients, and administrators through voice, chat, email, and a real-time dashboard — all orchestrated without writing a single line of backend server code.
+
+---
+
+## UI Preview
+
+A complete, production-ready frontend built in Google AI Studio connects to every backend module. Here's what the system looks like in action:
+
+### 🏥 Hospital Admin Command Center
+![Command Center](https://github.com/MaryumAkram16/medilens/blob/main/command%20center.PNG?raw=true)
+
+### 📋 Complaint Management
+![Complaint Management](https://github.com/MaryumAkram16/medilens/blob/main/complaint-management.PNG?raw=true)
+
+### 🧪 Lab Report & Prescription Analyzer
+![Lab Report Analyzer](https://github.com/MaryumAkram16/medilens/blob/main/lab%20analyzer.PNG?raw=true)
+
+### 📞 Voice Appointment Booking
+![Voice Booking](https://github.com/MaryumAkram16/medilens/blob/main/voice-booking.PNG?raw=true)
+
+### 🩺 Hospital Triage & Symptom Checker
+![Hospital Triage](https://github.com/MaryumAkram16/medilens/blob/main/Hospital%20Triage.PNG?raw=true)
+
+### 🤖 RAG Knowledge Base Chat
+![RAG Chat](https://github.com/MaryumAkram16/medilens/blob/main/RAG.PNG?raw=true)
+
+### 🎙️ Retell Voice Agent Flow
+![Retell Voice Agent](https://github.com/MaryumAkram16/medilens/blob/main/retell%20voice%20agent.PNG?raw=true)
+
+---
+
+## Workflow Screenshots
+
+| Command Center | Complaint Management |
+|---|---|
+| ![](https://github.com/MaryumAkram16/medilens/blob/main/command%20center.PNG?raw=true) | ![](https://github.com/MaryumAkram16/medilens/blob/main/complaint-management.PNG?raw=true) |
+
+| Lab Report Analyzer | Voice Appointment Booking |
+|---|---|
+| ![](https://github.com/MaryumAkram16/medilens/blob/main/lab%20analyzer.PNG?raw=true) | ![](https://github.com/MaryumAkram16/medilens/blob/main/voice-booking.PNG?raw=true) |
+
+| Hospital Triage | RAG Knowledge Base |
+|---|---|
+| ![](https://github.com/MaryumAkram16/medilens/blob/main/Hospital%20Triage.PNG?raw=true) | ![](https://github.com/MaryumAkram16/medilens/blob/main/RAG.PNG?raw=true) |
+
+| Retell Voice Agent |
+|---|
+| ![](https://github.com/MaryumAkram16/medilens/blob/main/retell%20voice%20agent.PNG?raw=true) |
 
 ---
 
@@ -96,6 +144,10 @@ Patient / Staff Input
 
 **File:** `command_center.json`
 
+![Command Center Workflow](https://github.com/MaryumAkram16/medilens/blob/main/command%20center.PNG?raw=true)
+
+![Command Center](https://github.com/MaryumAkram16/medilens/blob/main/command%20center.PNG?raw=true)
+
 The Command Center is the operational brain of the hospital. It consists of three interconnected sub-workflows that together provide administrators with a unified real-time view of hospital operations and AI-powered suggestions.
 
 #### Sub-Workflow A: AI Suggestion Generator
@@ -153,6 +205,10 @@ Handles admin approval or rejection of AI suggestions with full idempotency prot
 
 **File:** `Complaint_Management.json`
 
+![Complaint Management Workflow](https://github.com/MaryumAkram16/medilens/blob/main/complaint-management.PNG?raw=true)
+
+![Complaint Management](https://github.com/MaryumAkram16/medilens/blob/main/complaint-management.PNG?raw=true)
+
 A full-featured complaint intake, analysis, and resolution system with AI sentiment detection, department routing, audit logging, and Slack alerting for high-priority cases.
 
 #### Sub-Workflow A: Submit Complaint
@@ -196,6 +252,10 @@ Returns JSON suitable for dashboard charts and admin reporting.
 
 **File:** `lab_report_analyzer.json`
 
+![Lab Report Analyzer Workflow](https://github.com/MaryumAkram16/medilens/blob/main/lab%20analyzer.PNG?raw=true)
+
+![Lab Report Analyzer](https://github.com/MaryumAkram16/medilens/blob/main/lab%20analyzer.PNG?raw=true)
+
 A production-grade medical document interpretation service. Patients upload extracted text from lab results, prescriptions, imaging reports, or clinical notes and receive a detailed, plain-language explanation — delivered by email.
 
 **Trigger:** `POST /labreports`
@@ -223,6 +283,10 @@ A production-grade medical document interpretation service. Patients upload extr
 ### 4. Voice Appointment Booking System
 
 **File:** `Medilens_Voice_Appointment_Booking.json`
+
+![Voice Appointment Booking Workflow](https://github.com/MaryumAkram16/medilens/blob/main/voice-booking.PNG?raw=true)
+
+![Voice Appointment Booking](https://github.com/MaryumAkram16/medilens/blob/main/voice-booking.PNG?raw=true)
 
 A complete voice-AI backend powering a 24/7 automated medical receptionist. Built to integrate with **Retell AI**, all endpoints verify the `x-retell-signature` header before processing. Every voice interaction is logged to the `voice_logs` table.
 
@@ -304,6 +368,10 @@ The system handles six distinct patient use cases:
 
 **File:** `safe_symptom_checker.json`
 
+![Symptom Checker & Triage Workflow](https://github.com/MaryumAkram16/medilens/blob/main/Hospital%20Triage.PNG?raw=true)
+
+![Hospital Triage](https://github.com/MaryumAkram16/medilens/blob/main/Hospital%20Triage.PNG?raw=true)
+
 A production-hardened AI medical triage system that accepts patient symptom descriptions, routes them to the appropriate specialist AI, assesses severity, and triggers emergency protocols when needed.
 
 **Trigger:** `POST /hospital`
@@ -334,6 +402,10 @@ A production-hardened AI medical triage system that accepts patient symptom desc
 ### 6. RAG Knowledge Base Agent (Parts 1 & 2)
 
 **Files:** `safe_medilens_rag_agent_part_1.json`, `safe_medilens_rag_agent_part_2.json`
+
+![RAG Knowledge Base Agent Workflow](https://github.com/MaryumAkram16/medilens/blob/main/RAG.PNG?raw=true)
+
+![RAG Knowledge Base Chat](https://github.com/MaryumAkram16/medilens/blob/main/RAG.PNG?raw=true)
 
 A two-part Retrieval-Augmented Generation (RAG) system that allows patients and staff to ask questions about Medilens Hospital and receive accurate, document-grounded answers — with zero hallucination.
 
@@ -385,6 +457,10 @@ Provides an intelligent, context-aware chat interface backed by the ingested kno
 ### 7. Retell AI Voice Agent
 
 **File:** `Medilens_Voice_Agent_Retell.json`
+
+![Retell AI Voice Agent Conversation Flow](https://github.com/MaryumAkram16/medilens/blob/main/retell%20voice%20agent.PNG?raw=true)
+
+![Retell Voice Agent](https://github.com/MaryumAkram16/medilens/blob/main/retell%20voice%20agent.PNG?raw=true)
 
 This is the Retell AI conversation flow configuration — the voice-side counterpart to the n8n booking backend. It defines the full voice agent personality, conversation structure, intent routing, variable extraction, and every tool call that connects to the n8n webhooks. Import this directly into your Retell AI dashboard to recreate the complete `Medi` voice receptionist.
 
