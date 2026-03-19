@@ -17,6 +17,7 @@ A comprehensive, production-ready hospital operations automation platform built 
   - [4. Voice Appointment Booking System](#4-voice-appointment-booking-system)
   - [5. Symptom Checker & Medical Triage](#5-symptom-checker--medical-triage)
   - [6. RAG Knowledge Base Agent (Parts 1 & 2)](#6-rag-knowledge-base-agent-parts-1--2)
+  - [7. Retell AI Voice Agent](#7-retell-ai-voice-agent)
 - [Tech Stack](#tech-stack)
 - [Security & Compliance](#security--compliance)
 - [Setup Guide](#setup-guide)
@@ -381,6 +382,145 @@ Provides an intelligent, context-aware chat interface backed by the ingested kno
 
 ---
 
+### 7. Retell AI Voice Agent
+
+**File:** `Medilens_Voice_Agent_Retell.json`
+
+This is the Retell AI conversation flow configuration — the voice-side counterpart to the n8n booking backend. It defines the full voice agent personality, conversation structure, intent routing, variable extraction, and every tool call that connects to the n8n webhooks. Import this directly into your Retell AI dashboard to recreate the complete `Medi` voice receptionist.
+
+#### Agent Identity & Behavior
+
+- **Agent Name:** Medi — the friendly voice receptionist for Medilens Hospital
+- **Voice:** `retell-Cimo` (warm, professional, calm)
+- **Language:** `en-US`
+- **Interruption Sensitivity:** `0.9` (highly responsive to patient interruptions)
+- **Max Call Duration:** 60 minutes
+- **LLM Model:** GPT-4.1 (cascading) — used across all conversation nodes
+- **Post-Call Analysis:** GPT-4.1-mini for call summary and PII detection
+
+**Global Prompt rules enforced across all flows:**
+- Speak warmly and never sound robotic; never mention AI or internal systems
+- Ask only one question at a time; never repeat a question already answered
+- Spell names and email addresses back letter by letter to confirm
+- Read phone numbers in grouped digit format (e.g., "four one five - eight nine two - three two four five")
+- Immediately redirect emergencies (accidents, bleeding, unconsciousness) to the emergency department
+- Never diagnose, provide medical advice, or discuss treatment options
+
+---
+
+#### Conversation Flow Architecture
+
+The agent uses a **node-based conversation flow** with a single Welcome Node as the entry point and four component flows that handle each use case. Each component is a self-contained sub-flow that can exit back to the main flow or end the call.
+
+```
+Welcome Node (Intent Detection)
+        │
+        ├── schedule_appointment  → Book a new appointment
+        ├── cancel_appointment    → Cancel an existing appointment
+        ├── reschedule_appointment → Reschedule an existing appointment
+        └── Complaint             → Track a complaint by ID
+```
+
+---
+
+#### Component 1: `schedule_appointment`
+
+Handles new appointment booking end-to-end within a single voice call.
+
+**Conversation Steps:**
+1. Greets the patient and asks for their **full name** (with spelling confirmation)
+2. Collects **phone number** (reads back in grouped digits)
+3. Collects **email address** (spells username letter by letter + domain)
+4. Asks which **department** they want to book with
+5. Says: *"I will check the available slots"* → triggers tool call
+
+**Tool Calls:**
+- `doctor_availibility` → `POST YOUR_N8N_INSTANCE_URL/webhook/doctor_availibility`
+  - Sends: `name`, `phone_no`, `email`, `department`, `appointment_id`
+  - Returns: `consolidated_data` — list of available doctor slots
+- Agent reads available slots to patient and asks which time they prefer
+- Extracts: `doctor_name`, `appointment_date`, `appointment_time` from patient reply
+- `book_appointment` → `POST YOUR_N8N_INSTANCE_URL/webhook/book_appointment`
+  - Sends: `name`, `phone_no`, `email`, `department`, `doctor_name`, `appointment_date`, `appointment_time`, `appointment_id`, `schedule_id`
+  - Returns: booking confirmation message or failure reason
+
+**Error Handling:** If the patient fails to provide all details (name, phone, email, department), a retry conversation node prompts them to provide the missing information again before re-attempting extraction.
+
+---
+
+#### Component 2: `cancel_appointment`
+
+Handles appointment cancellation with a two-step confirm-before-cancel flow.
+
+**Conversation Steps:**
+1. Asks for **patient name** (with spelling confirmation)
+2. Asks for **appointment ID**
+3. Triggers appointment lookup → reads appointment details back to patient
+4. Asks: *"Do you want me to proceed with cancellation?"*
+5. If YES → triggers cancellation; if NO → politely ends
+
+**Tool Calls:**
+- `cancel-appointment-` → `POST YOUR_N8N_INSTANCE_URL/webhook/cancel_status`
+  - Sends: `patient_name`, `appointment_id`
+  - Returns: `appointment_info` — formatted appointment details read back to patient
+- `confirm_cancellation` → `POST YOUR_N8N_INSTANCE_URL/webhook/confirm_cancellation`
+  - Sends: `patient_name`, `appointment_id`
+  - Returns: cancellation confirmation message
+
+**Safety:** The agent always reads the appointment details back and requires explicit verbal confirmation ("yes") before cancelling. A "no" response exits gracefully with a polite farewell.
+
+---
+
+#### Component 3: `reschedule_appointment`
+
+Handles rescheduling by first verifying the current appointment, then offering the next available slot.
+
+**Conversation Steps:**
+1. Asks for **patient name** (with spelling confirmation)
+2. Asks for **appointment ID**
+3. Looks up current appointment → reads details back
+4. Asks: *"Do you want me to proceed with rescheduling?"*
+5. If YES → checks next available slot and presents it to patient
+6. Patient confirms → reschedule is confirmed
+
+**Tool Calls:**
+- `appointment_check` → `POST YOUR_N8N_INSTANCE_URL/webhook/reschedule_check`
+  - Sends: `patient_name`, `appointment_id`
+  - Returns: current appointment details + next available slot
+- `check_slot` → `POST YOUR_N8N_INSTANCE_URL/webhook/confirm_reschedule`
+  - Sends: `appointment_id`, `appointment_date`, `slot_start_time`, `slot_end_time`
+  - Returns: reschedule confirmation message
+
+---
+
+#### Component 4: `Complaint` (Status Tracking)
+
+Allows patients to check the status of an existing complaint by providing their name and complaint ID during the call.
+
+**Conversation Steps:**
+1. Asks for **patient name** (with spelling confirmation)
+2. Asks for **complaint ID**
+3. Triggers complaint lookup → reads status back to patient
+
+**Tool Call:**
+- `complaint_check` → `POST YOUR_N8N_INSTANCE_URL/webhook/complaint_status`
+  - Sends: `name`, `complaint_id`
+  - Returns: `message` — contextual status (Resolved / Pending / In Progress) plus escalation if pending > 48 hours
+
+---
+
+#### Importing into Retell AI
+
+1. Log in to your [Retell AI Dashboard](https://app.retellai.com)
+2. Navigate to **Agents → Import Agent**
+3. Upload `Medilens_Voice_Agent_Retell.json`
+4. After import, go to each component's **Tools** section and update all webhook URLs from `YOUR_N8N_INSTANCE_URL` to your actual n8n production webhook base URL
+5. If using a Retell knowledge base for the FAQs component, create a knowledge base in Retell, copy its ID, and replace `YOUR_KNOWLEDGE_BASE_ID` in the FAQs node instruction
+6. Set your **Agent ID** (auto-generated on import — note it down for API calls)
+7. Test using Retell's built-in call simulator before going live
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -438,6 +578,8 @@ Provides an intelligent, context-aware chat interface backed by the ingested kno
    - `safe_medilens_rag_agent_part_1.json`
    - `safe_medilens_rag_agent_part_2.json`
 
+> The Retell AI voice agent is configured separately — see **Step 6: Retell AI Voice Agent Import** below.
+
 ### 2. Configure Credentials
 
 For each workflow, configure the following credential types in n8n:
@@ -473,24 +615,32 @@ Replace the following placeholder values in the workflow nodes:
 4. Verify that vectors appear in your Pinecone index under the `medilens` namespace
 5. Re-run whenever new documents are added
 
-### 5. Retell AI Configuration
+### 5. Activate n8n Workflows
 
-1. In the Retell AI Dashboard, create a new Agent
-2. Set **LLM Type** to Custom LLM
-3. For each voice use case, create a tool that POSTs to the corresponding n8n webhook URL:
+After configuring all credentials and environment variables, activate every workflow in n8n by toggling the **Active** switch at the top of each workflow. Copy the **Production Webhook URL** from each webhook trigger node — you will need these in the next step.
 
-| Tool Name | Webhook Path |
-|---|---|
-| `doctor_availibility` | `/webhook/doctor_availibility` |
-| `book_appointment` | `/webhook/book_appointment` |
-| `cancel_status` | `/webhook/cancel_status` |
-| `confirm_cancellation` | `/webhook/confirm_cancellation` |
-| `reschedule_check` | `/webhook/reschedule_check` |
-| `confirm_reschedule` | `/webhook/confirm_reschedule` |
-| `complaint_check` | `/webhook/complaint_status` |
+### 6. Retell AI Voice Agent Import
 
-4. Ensure all tools send the `x-retell-signature` header (handled automatically by Retell)
-5. Activate all workflows in n8n before testing voice calls
+Rather than manually recreating the agent in the Retell dashboard, import the pre-built configuration file directly:
+
+1. Log in to your [Retell AI Dashboard](https://app.retellai.com)
+2. Navigate to **Agents → Import Agent** and upload `Medilens_Voice_Agent_Retell.json`
+3. Once imported, open the agent and go to each component's **Tools** section
+4. Update every webhook URL — replace `YOUR_N8N_INSTANCE_URL` with your actual n8n production base URL across all four components:
+
+| Component | Tool Name | Full Webhook URL to Set |
+|---|---|---|
+| `schedule_appointment` | `doctor_availibility` | `https://YOUR_N8N_URL/webhook/doctor_availibility` |
+| `schedule_appointment` | `book_appointment` | `https://YOUR_N8N_URL/webhook/book_appointment` |
+| `cancel_appointment` | `cancel-appointment-` | `https://YOUR_N8N_URL/webhook/cancel_status` |
+| `cancel_appointment` | `confirm_cancellation` | `https://YOUR_N8N_URL/webhook/confirm_cancellation` |
+| `reschedule_appointment` | `appointment_check` | `https://YOUR_N8N_URL/webhook/reschedule_check` |
+| `reschedule_appointment` | `check_slot` | `https://YOUR_N8N_URL/webhook/confirm_reschedule` |
+| `Complaint` | `complaint_check` | `https://YOUR_N8N_URL/webhook/complaint_status` |
+
+5. If using a Retell knowledge base for FAQs, create one in Retell, copy the generated ID, and replace `YOUR_KNOWLEDGE_BASE_ID` in the FAQs component conversation node instruction
+6. Ensure all tools send the `x-retell-signature` header (Retell handles this automatically)
+7. Use Retell's built-in **Call Simulator** to test each flow before going live
 
 ---
 
