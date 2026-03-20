@@ -7,6 +7,7 @@ A comprehensive, production-ready hospital operations automation platform built 
 ## Table of Contents
 
 - [Introduction](#introduction)
+- [Demo](#demo)
 - [UI Preview](#ui-preview)
 - [Workflow Screenshots](#workflow-screenshots)
 - [Problem Statement](#problem-statement)
@@ -35,6 +36,12 @@ A comprehensive, production-ready hospital operations automation platform built 
 Medilens is a modular, AI-first hospital automation system that replaces manual, error-prone administrative processes with intelligent, always-on workflows. Each module is a self-contained n8n workflow that can be deployed independently or together as a unified platform. The system connects hospital staff, patients, and administrators through voice, chat, email, and a real-time dashboard — all orchestrated without writing a single line of backend server code.
 
 ---
+## Demo 
+Voice Agent Demo:
+[![Voice Agent Demo](https://img.youtube.com/vi/migZQqh0CoA/0.jpg)](https://youtu.be/migZQqh0CoA)
+
+Full Medilens Demo:
+[![Medilens Full Demo](https://img.youtube.com/vi/L5w1mAUsjp0/0.jpg)](https://youtu.be/L5w1mAUsjp0)
 
 ## UI Preview
 
