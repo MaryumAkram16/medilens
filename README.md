@@ -671,11 +671,11 @@ Replace the following placeholder values in the workflow nodes:
 
 | Placeholder | Where | Description |
 |---|---|---|
-| `hoAsB5yO7F90KXhQ` | Command Center, Voice Booking | API key for admin endpoints |
+| `{{API_KEY}}` | Command Center, Voice Booking | API key for admin endpoints |
 | `{{API_KEY}}` | Lab Analyzer, Symptom Checker, RAG Agent | API key for patient-facing endpoints |
 | `{{DOCTOR_EMAIL}}` | Symptom Checker | Email address to receive emergency alerts |
 | `{{ALERT_EMAIL}}` | RAG Agent | Email address for complaint escalations |
-| `1gcweoI1j0oI5SE7_FYswTE1V_1B5_KDl` | RAG Part 1 | Google Drive folder ID for hospital PDFs |
+| `{{Your_Drive_ID}}` | RAG Part 1 | Google Drive folder ID for hospital PDFs |
 
 ### 4. RAG Document Ingestion
 
