@@ -2,6 +2,12 @@
 
 A comprehensive, production-ready hospital operations automation platform built on **n8n**, powered by **Google Gemini AI**, **Retell AI**, and **Supabase/PostgreSQL**. This system automates the full spectrum of hospital administrative workflows — from voice-based appointment booking to intelligent complaint handling, AI-powered symptom triage, lab report analysis, and a real-time admin command center — reducing manual overhead, improving patient experience, and enabling data-driven hospital management.
 
+## Contributors
+
+This system was built collaboratively. Module ownership:
+
+- **Maryum Akram** — Hospital Admin Command Center, Department-Based Complaint Management, Voice Appointment Booking System, Retell AI Voice Agent
+- **Sundas Naseem** — Lab Report & Prescription Analyzer, Symptom Checker & Medical Triage, RAG Knowledge Base Agent (Parts 1 & 2)
 ---
 
 ## Table of Contents
