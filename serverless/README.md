@@ -228,6 +228,30 @@ Every answer is JSON with `success` and a `message` written for the agent to **s
 5. Appointment IDs are now codes like `APT-7K2QXM`, and the agent reads them back letter by letter. Callers can say them with or without spaces.
 6. In Retell's settings for this agent, turn off storing recordings, since this is a demo with synthetic data.
 
+## Voice agent scenarios
+
+`npm run eval:voice` plays **24 scripted caller journeys** ([`evals/voice/scenarios.ts`](evals/voice/scenarios.ts)) against the real tool endpoints, exactly as Retell calls them: signed requests, with loose, speech-like arguments. Each step is graded, and **every reply the agent will speak** is checked against speech rules:
+- no raw codes like `APT-7K2QXM` (they must be spelled out)
+- no `2026-11-24`-style dates
+- times must say AM or PM
+- no `undefined`, `null` or braces
+- at most 70 words
+
+The journeys include the messy parts:
+- spoken codes with spaces, or missing the `APT` prefix
+- Roman Urdu ("bachon ka doctor", "saans nahi aa rahi")
+- a stranger using the wrong phone number
+- two callers wanting the same slot
+- a Retell retry
+- moving an appointment into the wrong department
+- an emergency described while trying to talk the AI into "low priority"
+- a complaint pending three days getting escalated
+- a runaway call flooding the tools
+
+The result is recorded, and CI runs it on every pull request: **24/24 journeys, 84 tool calls, every reply passing the speech rules.** Tests also prove the grader itself fails on wrong replies, wrong statuses and bad sentences, so a pass means something.
+
+**What it doesn't cover:** the Retell LLM's own choices, such as which tool it calls and how it phrases a question. Testing those needs real calls with `RETELL_API_KEY` and the live agent. The scenarios above are the script to use for that.
+
 ## Building the frontend page
 
 The page you build (like Lumina's) talks only to these endpoints. It never holds a key.
@@ -303,12 +327,13 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 
 ```bash
 npm ci
-npm test                 # 202 tests, plus 23 database tests when TEST_DATABASE_URL is set
+npm test                 # 230 tests, plus 23 database tests when TEST_DATABASE_URL is set
 npm run typecheck
 npm run eval:triage      # offline triage evaluation (no AI)
+npm run eval:voice       # 24 voice agent scenarios
 ```
 
-CI runs the type check, all 225 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
+CI runs the type check, all 253 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation, the voice scenarios and `npm audit` on every pull request.
 
 ## Triage evaluation
 

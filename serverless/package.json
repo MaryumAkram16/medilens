@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval:triage": "tsx evals/triage/run.ts",
-    "eval:triage:live": "tsx --env-file-if-exists=.env evals/triage/live.ts"
+    "eval:triage:live": "tsx --env-file-if-exists=.env evals/triage/live.ts",
+    "eval:voice": "tsx evals/voice/run.ts"
   },
   "dependencies": {
     "nodemailer": "^10.6.1",
