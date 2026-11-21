@@ -1,0 +1,57 @@
+name: Serverless backend CI
+
+on:
+  pull_request:
+    paths:
+      - "serverless/**"
+      - ".github/workflows/serverless-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "serverless/**"
+      - ".github/workflows/serverless-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: serverless-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, test (with Postgres), audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: serverless
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: medilens_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/medilens_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: serverless/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests (migration tests run against the Postgres service)
+        run: npm test
+      - name: Offline triage evaluation
+        run: npm run eval:triage
+      - name: Dependency audit
+        run: npm audit --audit-level=moderate
