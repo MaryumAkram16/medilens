@@ -246,6 +246,55 @@ export class ComplaintService {
   }
 }
 
+/** A pending complaint older than this is escalated when the patient calls about it (n8n rule). */
+export const ESCALATE_AFTER_HOURS = 48;
+
+export interface VoiceStatusResult {
+  success: boolean;
+  message: string;
+  complaint_code?: string;
+  status?: string;
+  department_name?: string;
+  escalated?: boolean;
+}
+
+export async function voiceComplaintStatus(
+  service: ComplaintService,
+  deps: { repository: ComplaintRepository; email: EmailSender; alertEmailOverride?: string | null; now: () => Date },
+  code: string,
+  contact: { email?: string | undefined; phone?: string | undefined },
+): Promise<VoiceStatusResult> {
+  const result = await service.status(code, contact);
+  if (!result.found) {
+    return { success: false, message: "I couldn't find a complaint with that code and contact detail. Could you read me the complaint code again?" };
+  }
+  const ageHours = (deps.now().getTime() - new Date(result.submitted_at).getTime()) / 3_600_000;
+  const base = { success: true, complaint_code: result.complaint_code, status: result.status, department_name: result.department_name };
+  if (result.status !== 'Pending' || ageHours <= ESCALATE_AFTER_HOURS) {
+    return { ...base, escalated: false, message: result.spoken_message };
+  }
+
+  const record = await deps.repository.findByCode(result.complaint_code);
+  try {
+    const to = deps.alertEmailOverride || (await deps.repository.departmentEmail('patient_relations'));
+    if (to) {
+      await deps.email.send({
+        to,
+        subject: `[ESCALATED] Complaint ${result.complaint_code} pending for ${Math.floor(ageHours)} hours`,
+        text: `The patient called about complaint ${result.complaint_code} (${result.department_name}). It has been pending for ${Math.floor(ageHours)} hours, over the ${ESCALATE_AFTER_HOURS}-hour target. Please follow up today.`,
+      });
+    }
+    if (record) await deps.repository.audit({ complaint_id: record.id, action: 'ESCALATED', details: { age_hours: Math.floor(ageHours), via: 'voice' } });
+  } catch {
+    // The caller still gets an answer; the failed escalation shows up in the logs.
+  }
+  return {
+    ...base,
+    escalated: true,
+    message: `Your complaint ${spellCode(result.complaint_code)} has been pending longer than expected. I have escalated it to our patient relations team, and someone will contact you today.`,
+  };
+}
+
 function duplicate(): SubmitResult {
   return {
     status: 409,

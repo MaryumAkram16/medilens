@@ -2,7 +2,11 @@
 
 TypeScript serverless functions (Vercel) that replace Maryum Akram's MediLens n8n modules. The n8n exports in the repository root stay as the design record.
 
-**This PR: department-based complaint management.** The Retell voice agent's endpoints (booking, rescheduling, cancellation, complaint status by phone) and voice complaints follow in the next PRs.
+**Built so far:**
+- department-based complaint management with AI triage and routing
+- the **Retell voice agent's tools**: doctor availability, booking, rescheduling, cancellation and complaint status
+
+**Next:** voice complaints (record → text → triage) and the browser "Start call" endpoint.
 
 > **Demo system.** Use synthetic data only. It is not a medical service and gives no medical advice. In an emergency, call **1122**.
 
@@ -99,6 +103,42 @@ Requires the `x-admin-key: <ADMIN_API_KEY>` header. It returns patient data, so 
 
 `{ status, data_source, ai_triage: "gemini" | "keywords_only", email: "smtp" | "log", time }`. It never shows a secret.
 
+## Voice agent tools (Retell)
+
+Each tool is a Retell **custom function** that POSTs `{ name, call, args }` here. Every request must carry a valid `x-retell-signature`, checked with `RETELL_API_KEY` over the exact body. Signatures older than five minutes are refused, so a captured request can't be replayed. The n8n flow only checked that the header existed.
+
+Every answer is JSON with `success` and a `message` written for the agent to **say**. A taken slot, a wrong code or a missing detail returns `200` with `success: false` and a sentence the agent can use to recover. Only a bad signature (`401`), too many requests in one call (`429`, 30 per minute) or an outage (`503`) are errors.
+
+| Retell tool | URL | `args` |
+|---|---|---|
+| `doctor_availibility` | `/api/doctor-availability` | `department` (spoken is fine: "heart", "bachon ka doctor"), optional `date` YYYY-MM-DD |
+| `book_appointment` | `/api/book-appointment` | `name`, `phone_no`, optional `email`, `schedule_id` (from availability) |
+| `appointment_check` | `/api/appointment-check` | `appointment_id`, `phone_no` |
+| `check_slot` | `/api/confirm-reschedule` | `appointment_id`, `phone_no`, and `schedule_id` **or** `appointment_date` + `slot_start_time` |
+| `cancel-appointment-` | `/api/cancel-status` | `appointment_id`, `phone_no` |
+| `confirm_cancellation` | `/api/confirm-cancellation` | `appointment_id`, `phone_no` |
+| `complaint_check` | `/api/complaint-check` | `complaint_id`, plus `phone_no` or `email` |
+
+**Changes to make in the Retell agent:**
+1. Point each tool's URL at your deployment.
+2. Add a `phone_no` parameter to the check, cancel and reschedule tools. On phone calls the caller's number is used automatically if the agent doesn't collect one.
+3. Appointment IDs are now codes like `APT-7K2QXM`, and the agent reads them back letter by letter. Callers can say them with or without spaces.
+
+### What changed from the n8n booking workflow
+
+| n8n | Here |
+|---|---|
+| Booking set a slot to `Booked` without checking it was free, so two callers could get the same slot | Booking is one database function, and **a unique index allows one active booking per slot**. Tested with two simultaneous bookings against real Postgres. |
+| Appointment ID = the slot number, and cancel/reschedule checked only that number | Appointments get their own code (`APT-XXXXXX`), and **every lookup or change also needs the phone number**. A wrong phone and an unknown code get the same answer. |
+| Reschedule's "free old slot" query was inverted, so the old slot was never released | Reschedule is one update: the old slot is freed in the same step |
+| `booked` vs `Booked`, so cancelled slots stayed unbookable | No slot status to keep in sync: a slot is free when it has no active booking |
+| "Next slot" used `time >= X AND date >= Y`, which skipped earlier times on later days | The next opening is ordered by date, then time |
+| The new slot was found by date and time only, so it could be another doctor's | Same specialty only, preferring the same doctor |
+| Retell retries could book twice | A retried call (same `call_id`) gets the original booking back |
+| — | Past and blocked slots are refused. "Today" is Pakistan time. |
+
+Demo doctors and specialties are synthetic, and slots are topped up for the next 14 days automatically (09:00–13:00, Monday to Saturday).
+
 ## Departments
 
 | Code | Department | Target response |
@@ -115,7 +155,7 @@ Requires the `x-admin-key: <ADMIN_API_KEY>` header. It returns patient data, so 
 
 ## Setup
 
-1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql) in the SQL editor. It's idempotent, and [`db/001_rollback.sql`](db/001_rollback.sql) undoes it. RLS is on with no policies, so only the service-role key used by these functions can read or write.
+1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), then [`db/002_appointments.sql`](db/002_appointments.sql), in the SQL editor. Both are idempotent, and each has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
 2. **Vercel:** import the repository with **Root Directory = `serverless`**, then add the environment variables below.
 3. **Check:** `GET /api/health` should show `data_source: "supabase"` and `ai_triage: "gemini"`.
 
@@ -129,17 +169,18 @@ Requires the `x-admin-key: <ADMIN_API_KEY>` header. It returns patient data, so 
 | `ALLOWED_ORIGINS` | for a browser frontend | comma-separated origins, such as your demo page |
 | `ADMIN_API_KEY` | for the summary | the summary endpoint is off without it |
 | `ALERT_EMAIL_OVERRIDE` | no | demo setting: every department alert goes to this inbox |
+| `RETELL_API_KEY` | for the voice tools | verifies Retell's signatures. The voice endpoints are off without it. |
 
 ## Tests
 
 ```bash
 npm ci
-npm test                 # 89 tests, plus 7 migration tests when TEST_DATABASE_URL is set
+npm test                 # 146 tests, plus 16 database tests when TEST_DATABASE_URL is set
 npm run typecheck
 npm run eval:triage      # offline triage evaluation (no AI)
 ```
 
-CI runs the type check, all 96 tests (the migration tests against a Postgres 16 service), the offline evaluation and `npm audit` on every pull request.
+CI runs the type check, all 162 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
 
 ## Triage evaluation
 

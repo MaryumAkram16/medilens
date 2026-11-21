@@ -13,8 +13,9 @@ This system was built collaboratively. Module ownership:
 
 Maryum's modules are being ported from n8n to tested TypeScript serverless functions in [`serverless/`](serverless/). The n8n exports below stay as the design record.
 
-- **Done:** department-based complaint management with **AI triage and routing**. Gemini decides priority and department, an emergency rule in code overrides it, low-confidence complaints go to a person, and keyword rules take over if the AI is down. It has 96 tests and a 50-case triage evaluation.
-- **Next:** the Retell voice agent's endpoints (booking, rescheduling, cancellation, complaint status) and voice complaints.
+- **Done:** department-based complaint management with **AI triage and routing**. Gemini decides priority and department, an emergency rule in code overrides it, low-confidence complaints go to a person, and keyword rules take over if the AI is down. It has a 50-case triage evaluation.
+- **Done:** the Retell voice agent's tools (availability, booking, rescheduling, cancellation, complaint status). This fixes double booking, unauthorised cancellation and slots that were never freed from the n8n flow.
+- **Next:** voice complaints and the browser "Start call" endpoint.
 
 See [`serverless/README.md`](serverless/README.md) for the API, setup and evaluation.
 ---

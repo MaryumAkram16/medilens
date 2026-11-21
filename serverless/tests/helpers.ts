@@ -44,6 +44,7 @@ export function testConfig(over: Partial<AppConfig> = {}): AppConfig {
     alertEmailOverride: null,
     allowedOrigins: ['https://medilens-demo.example'],
     adminApiKey: 'admin-test-key',
+    retellApiKey: null,
     maxBodyBytes: 16 * 1024,
     rateLimit: { windowMs: 60_000, perIp: 10 },
     ...over,
