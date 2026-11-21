@@ -10,6 +10,8 @@ export interface AppConfig {
   alertEmailOverride: string | null;
   allowedOrigins: string[];
   adminApiKey: string | null;
+  /** Verifies Retell's request signatures. Voice endpoints are off without it. */
+  retellApiKey: string | null;
   maxBodyBytes: number;
   rateLimit: { windowMs: number; perIp: number };
 }
@@ -56,6 +58,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
       .map((o) => o.trim().replace(/\/+$/, ''))
       .filter(Boolean),
     adminApiKey: get('ADMIN_API_KEY') || null,
+    retellApiKey: get('RETELL_API_KEY') || null,
     maxBodyBytes: 16 * 1024,
     rateLimit: { windowMs: 60_000, perIp: 10 }, // the n8n workflow's 10 requests per minute
   };

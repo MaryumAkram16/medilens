@@ -49,12 +49,12 @@ describe.skipIf(!url)('db/001_complaints.sql', () => {
   beforeAll(async () => {
     db = new pg.Client({ connectionString: url });
     await db.connect();
+    await db.query(sql('002_rollback.sql'));
     await db.query(sql('001_rollback.sql'));
     await db.query(sql('001_complaints.sql'));
   });
 
   afterAll(async () => {
-    await db?.query(sql('001_rollback.sql'));
     await db?.end();
   });
 
@@ -110,5 +110,137 @@ describe.skipIf(!url)('db/001_complaints.sql', () => {
     await db.query('delete from public.complaints where id = $1', [rows[0].id]);
     const audit = await db.query(`select complaint_id from public.complaint_audit where action = 'CREATED'`);
     expect(audit.rows).toEqual([{ complaint_id: null }]);
+  });
+});
+
+// Same database as above, so these run after it in this file (never in parallel).
+describe.skipIf(!url)('db/002_appointments.sql', () => {
+  let db: pg.Client;
+  const PHONE = '+92 300 1234567';
+
+  const p0001 = async (q: Promise<unknown>) => {
+    try {
+      await q;
+      return 'no error';
+    } catch (err) {
+      return (err as { message: string }).message;
+    }
+  };
+  // A slot far enough ahead to be in the future whatever the clock says.
+  const futureSlot = async (doctor = 'Dr. Sara Malik', start = '10:00') => {
+    const { rows } = await db.query(
+      `insert into doctor_slots (doctor_id, slot_date, start_time, end_time)
+       select id, (now() at time zone 'Asia/Karachi')::date + 30, $2::time, $2::time + interval '30 minutes' from doctors where name = $1
+       on conflict (doctor_id, slot_date, start_time) do update set blocked = false returning id`,
+      [doctor, start],
+    );
+    return Number(rows[0].id);
+  };
+  const book = (client: pg.Client, slot: number, code: string, phone = PHONE, callId: string | null = null) =>
+    client.query('select * from book_appointment($1, $2, $3, $4, $5, $6)', [slot, 'Test Patient', phone, 'p@example.test', code, callId]);
+
+  beforeAll(async () => {
+    db = new pg.Client({ connectionString: url });
+    await db.connect();
+    await db.query(sql('002_appointments.sql'));
+  });
+
+  afterAll(async () => {
+    await db?.query(sql('002_rollback.sql'));
+    await db?.query(sql('001_rollback.sql'));
+    await db?.end();
+  });
+
+  it('applies twice, seeds the doctors and keeps demo slots topped up idempotently', async () => {
+    await db.query(sql('002_appointments.sql'));
+    expect((await db.query('select count(*)::int as n from doctors')).rows[0].n).toBe(7);
+    expect((await db.query('select ensure_demo_slots(14) as added')).rows[0].added).toBe(0);
+    const sundays = await db.query(`select count(*)::int as n from doctor_slots where extract(isodow from slot_date) = 7`);
+    expect(sundays.rows[0].n).toBe(0);
+  });
+
+  it('lists only future, unblocked, unbooked slots of the specialty', async () => {
+    const slot = await futureSlot('Dr. Sara Malik', '11:00');
+    const before = (await db.query(`select slot_id from available_slots('cardiology', ((now() at time zone 'Asia/Karachi')::date + 30), 50)`)).rows.map((r) => Number(r.slot_id));
+    expect(before).toContain(slot);
+    await book(db, slot, 'APT-LIST01');
+    const after = (await db.query(`select slot_id from available_slots('cardiology', ((now() at time zone 'Asia/Karachi')::date + 30), 50)`)).rows.map((r) => Number(r.slot_id));
+    expect(after).not.toContain(slot);
+    const others = await db.query(`select distinct specialty_code from available_slots('dermatology', null, 50)`);
+    expect(others.rows.map((r) => r.specialty_code)).toEqual(['dermatology']);
+  });
+
+  it('lets exactly one of two simultaneous bookings of a slot win', async () => {
+    const slot = await futureSlot('Dr. Sara Malik', '12:00');
+    const a = new pg.Client({ connectionString: url });
+    const b = new pg.Client({ connectionString: url });
+    await Promise.all([a.connect(), b.connect()]);
+    try {
+      const results = await Promise.allSettled([book(a, slot, 'APT-RACE01', PHONE), book(b, slot, 'APT-RACE02', '0311 7654321')]);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      expect(lost.reason.message).toBe('slot_unavailable');
+      const booked = await db.query(`select count(*)::int as n from appointments where slot_id = $1 and status = 'Booked'`, [slot]);
+      expect(booked.rows[0].n).toBe(1);
+    } finally {
+      await Promise.all([a.end(), b.end()]);
+    }
+  });
+
+  it('refuses past and blocked slots', async () => {
+    const { rows } = await db.query(
+      `insert into doctor_slots (doctor_id, slot_date, start_time, end_time)
+       select id, (now() at time zone 'Asia/Karachi')::date - 1, '10:00', '10:30' from doctors where name = 'Dr. Usman Raza' returning id`,
+    );
+    expect(await p0001(book(db, Number(rows[0].id), 'APT-PAST01'))).toBe('slot_unavailable');
+    const blocked = await futureSlot('Dr. Usman Raza', '09:00');
+    await db.query('update doctor_slots set blocked = true where id = $1', [blocked]);
+    expect(await p0001(book(db, blocked, 'APT-BLKD01'))).toBe('slot_unavailable');
+  });
+
+  it('returns the original booking when the same call retries', async () => {
+    const slot = await futureSlot('Dr. Hina Qureshi', '10:00');
+    const first = await book(db, slot, 'APT-RTRY01', PHONE, 'call_42');
+    const again = await book(db, slot, 'APT-RTRY02', PHONE, 'call_42');
+    expect(again.rows[0].appointment_code).toBe(first.rows[0].appointment_code);
+  });
+
+  it('needs the matching phone (in any format) to find or cancel', async () => {
+    const slot = await futureSlot('Dr. Omar Siddiqui', '10:00');
+    await book(db, slot, 'APT-OWNR01');
+    expect((await db.query(`select * from find_appointment('APT-OWNR01', '0311 7654321')`)).rows).toEqual([]);
+    expect((await db.query(`select * from find_appointment('APT-OWNR01', '03001234567')`)).rows[0]).toMatchObject({ doctor_name: 'Dr. Omar Siddiqui', status: 'Booked' });
+    expect(await p0001(db.query(`select * from cancel_appointment('APT-OWNR01', '0311 7654321')`))).toBe('not_found');
+  });
+
+  it('cancel frees the slot for the next patient and cannot run twice', async () => {
+    const slot = await futureSlot('Dr. Fatima Javed', '10:00');
+    await book(db, slot, 'APT-CNCL01');
+    const { rows } = await db.query(`select * from cancel_appointment('APT-CNCL01', $1)`, [PHONE]);
+    expect(rows[0]).toMatchObject({ status: 'Cancelled' });
+    expect(rows[0].cancelled_at).not.toBeNull();
+    await expect(book(db, slot, 'APT-CNCL02', '0311 7654321')).resolves.toBeDefined();
+    expect(await p0001(db.query(`select * from cancel_appointment('APT-CNCL01', $1)`, [PHONE]))).toBe('not_booked');
+  });
+
+  it('reschedule moves the booking, releases the old slot, and stays in the specialty', async () => {
+    const oldSlot = await futureSlot('Dr. Ayesha Khan', '10:00');
+    const newSlot = await futureSlot('Dr. Bilal Ahmed', '11:00');
+    await book(db, oldSlot, 'APT-MOVE01');
+    const { rows } = await db.query(`select * from reschedule_appointment('APT-MOVE01', $1, $2)`, [PHONE, newSlot]);
+    expect(Number(rows[0].slot_id)).toBe(newSlot);
+    await expect(book(db, oldSlot, 'APT-MOVE02', '0311 7654321')).resolves.toBeDefined();
+
+    const otherSpecialty = await futureSlot('Dr. Sara Malik', '09:30');
+    expect(await p0001(db.query(`select * from reschedule_appointment('APT-MOVE01', $1, $2)`, [PHONE, otherSpecialty]))).toBe('different_specialty');
+    expect(await p0001(db.query(`select * from reschedule_appointment('APT-MOVE01', $1, $2)`, [PHONE, oldSlot]))).toBe('slot_unavailable');
+  });
+
+  it('turns on row-level security for every table', async () => {
+    const { rows } = await db.query(
+      `select relrowsecurity from pg_class where relname in ('specialties','doctors','doctor_slots','appointments')`,
+    );
+    expect(rows).toHaveLength(4);
+    expect(rows.every((r) => r.relrowsecurity)).toBe(true);
   });
 });
