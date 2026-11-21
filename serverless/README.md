@@ -100,6 +100,40 @@ Requires the `x-admin-key: <ADMIN_API_KEY>` header. It returns patient data, so 
 - `summary`: `total`, `pending`, `resolved`, `lowPriority`, `mediumPriority`, `highPriority`, `needsReview`, `emergency`, `byCategory`, `byDepartment`
 - `data`, `timestamp`, `recordCount`
 
+### `POST /api/complaint-update` (staff, admin key)
+
+Staff confirm or correct the triage, and move a complaint through `Pending` → `In Review` → `Resolved`.
+
+```json
+{ "complaint_code": "CMP-6TFQNX", "department": "laboratory", "priority": "High", "status": "In Review", "note": "About a lost sample" }
+```
+
+- **Fields:** send any of `status`, `priority`, `department` or `"confirm": true` (meaning the triage was right).
+- **Moving a complaint to a new department** alerts that department.
+- **Changing the status** emails the patient, when they gave an email.
+- **The complaint's first review is kept as ground truth** for the live accuracy score. It's enforced in the database, so two staff saving at once can't both count. Later changes are history.
+- **`200`:** `{ success, complaint_code, status, priority, department, department_name, review: "confirmed" | "corrected" | "none", first_review, notified }`
+
+### `GET /api/triage-accuracy` (staff, admin key)
+
+**How often the triage is right in practice**, measured on complaints staff have reviewed:
+
+```json
+{
+  "reviewed": 40,
+  "by_source": {
+    "ai": { "reviewed": 36, "both_correct": 33, "department_correct": 35, "priority_correct": 33, "accuracy": 0.917 },
+    "keywords": { "reviewed": 4, "both_correct": 3, "department_correct": 3, "priority_correct": 4, "accuracy": 0.75 }
+  },
+  "recent_corrections": [{ "complaint_code": "CMP-…", "triage_source": "ai", "from": "Medium billing", "to": "High laboratory" }],
+  "cases": [{ "id": "CMP-…", "text": "…", "expected_priority": "High", "expected_department": "laboratory" }]
+}
+```
+
+(The numbers above are an example, not a measured result.)
+
+**`cases` are the reviewed complaints in the evaluation format,** so the model can be re-scored on real mistakes: save them as `reviewed.json` and run `npm run eval:triage:live -- reviewed.json`. They contain real patient text, so `reviewed*.json` is git-ignored. Don't commit them.
+
 ### `GET /api/health`
 
 `{ status, data_source, ai_triage, email, voice, web_call, voice_input, time }`. It shows which features are on (`gemini` or `keywords_only`, `smtp` or `log`, `on`, `off` or `on_with_passcode`), and never a secret.
@@ -225,7 +259,7 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 
 ## Setup
 
-1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), [`db/002_appointments.sql`](db/002_appointments.sql) and [`db/003_voice.sql`](db/003_voice.sql), in that order, in the SQL editor. Each is idempotent and has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
+1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), [`002_appointments`](db/002_appointments.sql), [`003_voice`](db/003_voice.sql) and [`004_reviews`](db/004_reviews.sql), in that order, in the SQL editor. Each is idempotent and has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
 2. **Vercel:** import the repository with **Root Directory = `serverless`**, then add the environment variables below. All endpoints run in **one function** ([`api/router.ts`](api/router.ts)), and `vercel.json` rewrites `/api/<route>` to it. That's because Vercel's Hobby plan allows at most 12 functions per deployment, and this backend has 16 endpoints. A test fails CI if `api/` ever grows past that limit.
 3. **Check:** `GET /api/health` should show `data_source: "supabase"` and `ai_triage: "gemini"`.
 
@@ -249,12 +283,12 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 
 ```bash
 npm ci
-npm test                 # 178 tests, plus 21 database tests when TEST_DATABASE_URL is set
+npm test                 # 196 tests, plus 22 database tests when TEST_DATABASE_URL is set
 npm run typecheck
 npm run eval:triage      # offline triage evaluation (no AI)
 ```
 
-CI runs the type check, all 199 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
+CI runs the type check, all 218 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
 
 ## Triage evaluation
 

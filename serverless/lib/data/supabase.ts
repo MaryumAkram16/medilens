@@ -11,6 +11,9 @@ import {
   type ComplaintRepository,
   type InsertResult,
   type NewComplaint,
+  type ComplaintPatch,
+  type NewReview,
+  type ReviewedComplaint,
 } from './types.js';
 
 export interface SupabaseOptions {
@@ -109,5 +112,42 @@ export class SupabaseRepository implements ComplaintRepository {
       body: JSON.stringify({ ...entry, actor: 'system' }),
     });
     if (!res.ok) throw new DataSourceError(`supabase_http_${res.status}`);
+  }
+
+  async updateComplaint(id: number, patch: ComplaintPatch): Promise<ComplaintRecord> {
+    const res = await this.request(`complaints?id=eq.${Number(id)}&select=${COLUMNS}`, {
+      method: 'PATCH',
+      headers: { prefer: 'return=representation' },
+      body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+    });
+    const [row] = await this.rows<ComplaintRecord>(res);
+    if (!row) throw new DataSourceError('supabase_complaint_missing');
+    return { ...row, confidence: Number(row.confidence) };
+  }
+
+  async hasReview(complaintId: number): Promise<boolean> {
+    const q = new URLSearchParams({ select: 'id', complaint_id: `eq.${Number(complaintId)}`, limit: '1' });
+    return (await this.rows(await this.request(`complaint_reviews?${q}`))).length > 0;
+  }
+
+  async addReview(review: NewReview): Promise<boolean> {
+    const res = await this.request('complaint_reviews', { method: 'POST', headers: { prefer: 'return=minimal' }, body: JSON.stringify(review) });
+    if (res.status === 409) return false; // the one-first-review index
+    if (!res.ok) throw new DataSourceError(`supabase_http_${res.status}`);
+    return true;
+  }
+
+  async firstReviews(limit: number): Promise<ReviewedComplaint[]> {
+    const q = new URLSearchParams({
+      select: 'complaint_id,action,from_priority,from_department,to_priority,to_department,triage_source,first_review,note,created_at,complaints(complaint_code,details)',
+      first_review: 'is.true',
+      order: 'created_at.desc',
+      limit: String(limit),
+    });
+    type Row = Omit<ReviewedComplaint, 'complaint_code' | 'details'> & { complaints: { complaint_code: string; details: string } | null };
+    const rows = await this.rows<Row>(await this.request(`complaint_reviews?${q}`));
+    return rows
+      .filter((r) => r.complaints)
+      .map(({ complaints, ...r }) => ({ ...r, complaint_code: complaints!.complaint_code, details: complaints!.details }));
   }
 }

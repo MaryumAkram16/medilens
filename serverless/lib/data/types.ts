@@ -38,6 +38,32 @@ export interface AuditEntry {
   details: Record<string, unknown>;
 }
 
+/** A staff review (db/004 complaint_reviews). */
+export interface ReviewRecord {
+  complaint_id: number;
+  action: 'confirmed' | 'corrected';
+  from_priority: Priority;
+  from_department: DepartmentCode;
+  to_priority: Priority;
+  to_department: DepartmentCode;
+  triage_source: 'ai' | 'keywords';
+  first_review: boolean;
+  note: string | null;
+  created_at: string;
+}
+
+export type NewReview = Omit<ReviewRecord, 'created_at'>;
+
+/** A first review with the complaint it belongs to, for accuracy and the case export. */
+export interface ReviewedComplaint extends ReviewRecord {
+  complaint_code: string;
+  details: string;
+}
+
+export type ComplaintPatch = Partial<Pick<ComplaintRecord, 'priority' | 'department_code' | 'status' | 'needs_review'>> & {
+  reviewed_at?: string;
+};
+
 export type InsertResult = { ok: true; record: ComplaintRecord } | { ok: false; reason: 'duplicate' };
 
 export interface ComplaintRepository {
@@ -49,6 +75,12 @@ export interface ComplaintRepository {
   list(limit: number): Promise<ComplaintRecord[]>;
   departmentEmail(code: DepartmentCode): Promise<string | null>;
   audit(entry: AuditEntry): Promise<void>;
+  /** Staff review (db/004). */
+  updateComplaint(id: number, patch: ComplaintPatch): Promise<ComplaintRecord>;
+  hasReview(complaintId: number): Promise<boolean>;
+  /** Returns false if a first review already exists (two staff saving at once). */
+  addReview(review: NewReview): Promise<boolean>;
+  firstReviews(limit: number): Promise<ReviewedComplaint[]>;
 }
 
 /** Who filed it, for duplicate detection: the email, or the phone's last 10 digits. Mirrors db/003. */

@@ -3,13 +3,16 @@
  * POST /api/complaints triages. Needs GEMINI_API_KEY; refuses to run without
  * it, so a score never comes from a stub. Paced for the free tier.
  *   GEMINI_API_KEY=... npm run eval:triage:live
+ *   GEMINI_API_KEY=... npm run eval:triage:live -- reviewed.json
+ * The optional file is the `cases` array from GET /api/triage-accuracy (staff-
+ * reviewed complaints). It holds real patient text, so keep it out of git.
  * Prints Markdown and writes reports/triage-live-YYYY-MM-DD.md (git-ignored).
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { DEFAULT_GEMINI_MODEL, geminiClassifier } from '../../lib/complaints/gemini.js';
 import { finalizeTriage, type TriageResult } from '../../lib/complaints/triage.js';
-import { formatReport, score } from './evaluate.js';
-import { dataset } from './run.js';
+import { formatReport, score, type Case } from './evaluate.js';
+import { dataset as builtIn } from './run.js';
 
 const apiKey = (process.env.GEMINI_API_KEY || '').trim();
 if (!apiKey) {
@@ -17,6 +20,13 @@ if (!apiKey) {
   process.exit(2);
 }
 const model = (process.env.GEMINI_MODEL || '').trim() || DEFAULT_GEMINI_MODEL;
+const casesFile = process.argv[2];
+const dataset: { cases: Case[] } = casesFile
+  ? (() => {
+      const raw = JSON.parse(readFileSync(casesFile, 'utf8')) as Case[] | { cases: Case[] };
+      return { cases: Array.isArray(raw) ? raw : raw.cases };
+    })()
+  : builtIn;
 const gapMs = Number(process.env.EVAL_GAP_MS || 4500); // stays under free-tier requests per minute
 
 const failures: string[] = [];
@@ -32,7 +42,7 @@ for (const c of dataset.cases) {
 const date = new Date().toISOString().slice(0, 10);
 const report = score(dataset.cases, results);
 const markdown = [
-  formatReport(report, `Live triage — ${date} — ${model}`),
+  formatReport(report, `Live triage — ${date} — ${model}${casesFile ? ` — ${dataset.cases.length} reviewed complaints` : ''}`),
   '',
   failures.length ? `AI calls that failed and fell back to keyword rules: ${failures.length} (${[...new Set(failures)].join(', ')})` : 'AI calls that failed: 0',
 ].join('\n');
