@@ -12,6 +12,8 @@ export const ROUTES = {
   'complaints-summary': 'complaintsSummary',
   'complaint-update': 'complaintUpdate',
   'triage-accuracy': 'triageAccuracy',
+  // Scheduled job
+  'sla-sweep': 'slaSweep',
   transcribe: 'transcribe',
   // Voice agent (browser)
   'create-web-call': 'createWebCall',

@@ -21,6 +21,8 @@ export class MemoryRepository implements ComplaintRepository {
   readonly complaints: ComplaintRecord[] = [];
   readonly auditLog: AuditEntry[] = [];
   readonly reviews: ReviewRecord[] = [];
+  /** Complaint ids already escalated by the deadline monitor. */
+  readonly escalated = new Set<number>();
   private nextId = 1;
 
   constructor(private readonly now: () => Date = () => new Date()) {}
@@ -73,6 +75,21 @@ export class MemoryRepository implements ComplaintRepository {
     if (review.first_review && this.reviews.some((r) => r.complaint_id === review.complaint_id && r.first_review)) return false;
     this.reviews.push({ ...review, created_at: this.now().toISOString() });
     return true;
+  }
+
+  async claimOverdue(limit: number): Promise<ComplaintRecord[]> {
+    const now = this.now().getTime();
+    const due = this.complaints
+      .filter(
+        (c) =>
+          c.status !== 'Resolved' &&
+          !this.escalated.has(c.id) &&
+          new Date(c.created_at).getTime() + DEPARTMENTS[c.department_code].slaHours * 3_600_000 < now,
+      )
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .slice(0, Math.max(1, Math.min(limit, 200)));
+    for (const c of due) this.escalated.add(c.id);
+    return due;
   }
 
   async firstReviews(limit: number): Promise<ReviewedComplaint[]> {

@@ -50,6 +50,7 @@ describe.skipIf(!url)('db/001_complaints.sql', () => {
     db = new pg.Client({ connectionString: url });
     await db.connect();
     // Start clean even if an earlier run stopped half-way (later migrations' tables first).
+    await db.query('drop function if exists public.claim_overdue_complaints(int)');
     await db.query('drop table if exists public.complaint_reviews');
     await db.query('drop table if exists public.call_actions');
     await db.query(sql('002_rollback.sql'));
@@ -287,15 +288,18 @@ describe.skipIf(!url)('db/003_voice.sql', () => {
   beforeAll(async () => {
     db = new pg.Client({ connectionString: url });
     await db.connect();
+    await db.query(sql('005_rollback.sql'));
     await db.query(sql('004_rollback.sql'));
     await clearComplaints();
     await db.query(sql('003_voice.sql'));
     await db.query(sql('004_reviews.sql'));
+    await db.query(sql('005_sla.sql'));
   });
 
   afterAll(async () => {
     if (db) {
       await clearComplaints();
+      await db.query(sql('005_rollback.sql'));
       await db.query(sql('004_rollback.sql'));
       await db.query(sql('003_rollback.sql'));
       await db.query(sql('002_rollback.sql'));
@@ -347,6 +351,37 @@ describe.skipIf(!url)('db/003_voice.sql', () => {
     expect(rls.rows[0].relrowsecurity).toBe(true);
     await db.query('delete from public.complaints where id = $1', [id]);
     expect((await db.query('select count(*)::int as n from public.complaint_reviews where complaint_id = $1', [id])).rows[0].n).toBe(0);
+  });
+
+  it('005: claims overdue unresolved complaints once, even with two sweeps at the same moment', async () => {
+    await clearComplaints();
+    const old = (code: string, hoursAgo: number, dept: string, status = 'Pending') =>
+      complaint({ complaint_code: code, details_hash: `sla-${code}`, phone: `0300 ${code.slice(-6).replace(/\D/g, '9').padEnd(7, '1')}`, department_code: dept, status }).then(({ rows }) =>
+        db.query(`update public.complaints set created_at = now() - make_interval(hours => $2) where id = $1`, [rows[0].id, hoursAgo]),
+      );
+    await old('CMP-SLA001', 30, 'nursing'); // 24 h target: overdue
+    await old('CMP-SLA002', 30, 'billing'); // 72 h target: not yet
+    await old('CMP-SLA003', 2, 'emergency'); // 1 h target: overdue
+    await old('CMP-SLA004', 100, 'facilities', 'Resolved'); // resolved: never
+    for (let i = 0; i < 6; i++) await old(`CMP-SLAB0${i}`, 50, 'clinical_care'); // 24 h target: overdue
+
+    const a = new pg.Client({ connectionString: url });
+    const b = new pg.Client({ connectionString: url });
+    await Promise.all([a.connect(), b.connect()]);
+    try {
+      const [ra, rb] = await Promise.all([
+        a.query('select complaint_code from claim_overdue_complaints(50)'),
+        b.query('select complaint_code from claim_overdue_complaints(50)'),
+      ]);
+      const codes = [...ra.rows, ...rb.rows].map((r) => r.complaint_code).sort();
+      expect(codes).toEqual(['CMP-SLA001', 'CMP-SLA003', 'CMP-SLAB00', 'CMP-SLAB01', 'CMP-SLAB02', 'CMP-SLAB03', 'CMP-SLAB04', 'CMP-SLAB05']);
+      expect(new Set(codes).size).toBe(codes.length); // no complaint claimed by both
+    } finally {
+      await Promise.all([a.end(), b.end()]);
+    }
+    expect((await db.query('select count(*)::int as n from claim_overdue_complaints(50)')).rows[0].n).toBe(0);
+    const marked = await db.query(`select count(*)::int as n from public.complaints where escalated_at is not null`);
+    expect(marked.rows[0].n).toBe(8);
   });
 
   it('rolls back and re-applies once no email-less complaints remain', async () => {

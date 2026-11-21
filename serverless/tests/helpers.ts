@@ -49,6 +49,7 @@ export function testConfig(over: Partial<AppConfig> = {}): AppConfig {
     webCallPasscode: null,
     webCall: { perIpPer10Min: 3, globalPerHour: 30 },
     summarySecret: null,
+    cronSecret: null,
     maxBodyBytes: 16 * 1024,
     rateLimit: { windowMs: 60_000, perIp: 10 },
     ...over,

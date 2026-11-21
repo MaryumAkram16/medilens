@@ -35,6 +35,7 @@ import { summarizeCall, summaryKey, summaryRecipient, summaryToken, validSummary
 import { AUDIO_TYPES, MAX_AUDIO_BYTES, geminiTranscriber, looksLikeAudio, type Transcriber } from './voice/transcribe.js';
 import { retellWebCall, type CreateWebCall } from './voice/web-call.js';
 import { reviewComplaint, reviewSchema, triageAccuracy } from './complaints/review.js';
+import { slaSweep } from './complaints/sla.js';
 
 export interface AppDeps {
   config: AppConfig;
@@ -73,6 +74,8 @@ export interface App {
   // Staff (admin key)
   complaintUpdate: Handler;
   triageAccuracy: Handler;
+  // Scheduled job (CRON_SECRET)
+  slaSweep: Handler;
 }
 
 const BASE_HEADERS: Record<string, string> = {
@@ -388,6 +391,21 @@ export function createApp(deps: AppDeps): App {
       });
     },
 
+    async slaSweep(request) {
+      const requestId = randomUUID();
+      if (request.method !== 'POST') return error(405, 'METHOD_NOT_ALLOWED', 'Use POST.', requestId, { allow: 'POST' });
+      if (!config.cronSecret) return error(503, 'NOT_CONFIGURED', 'The deadline monitor is not switched on.', requestId);
+      const auth = request.headers.get('authorization') ?? '';
+      if (!auth.startsWith('Bearer ') || !sameSecret(auth.slice(7).trim(), config.cronSecret)) {
+        return error(401, 'UNAUTHORIZED', 'A valid scheduler token is required.', requestId);
+      }
+      return guarded('sla_sweep', requestId, {}, async () => {
+        const report = await slaSweep({ repository, email, alertEmailOverride: config.alertEmailOverride, now, log: (msg, fields) => log('warn', msg, fields) });
+        log('info', 'sla_sweep', { request_id: requestId, escalated: report.escalated });
+        return json(200, { success: true, ...report }, requestId);
+      });
+    },
+
     async triageAccuracy(request) {
       const requestId = randomUUID();
       const g = await gate(request, 'GET', requestId);
@@ -622,6 +640,7 @@ export function createApp(deps: AppDeps): App {
           voice: config.retellApiKey ? 'on' : 'off',
           web_call: createWebCall && config.retellAgentId ? (config.webCallPasscode ? 'on_with_passcode' : 'on') : 'off',
           voice_input: transcriber ? 'on' : 'off',
+          sla_monitor: config.cronSecret ? 'on' : 'off',
           time: now().toISOString(),
         },
         requestId,
