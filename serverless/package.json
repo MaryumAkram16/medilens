@@ -1,0 +1,30 @@
+{
+  "name": "medilens-serverless",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serverless backend for MediLens: AI complaint triage and routing, and the Retell voice agent's tools.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "eval:triage": "tsx evals/triage/run.ts",
+    "eval:triage:live": "tsx --env-file-if-exists=.env evals/triage/live.ts"
+  },
+  "dependencies": {
+    "nodemailer": "^10.6.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

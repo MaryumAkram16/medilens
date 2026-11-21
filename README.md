@@ -8,6 +8,15 @@ This system was built collaboratively. Module ownership:
 
 - **Maryum Akram** — Hospital Admin Command Center, Department-Based Complaint Management, Voice Appointment Booking System, Retell AI Voice Agent
 - **Sundas Naseem** — Lab Report & Prescription Analyzer, Symptom Checker & Medical Triage, RAG Knowledge Base Agent (Parts 1 & 2)
+
+### TypeScript serverless backend (in progress)
+
+Maryum's modules are being ported from n8n to tested TypeScript serverless functions in [`serverless/`](serverless/). The n8n exports below stay as the design record.
+
+- **Done:** department-based complaint management with **AI triage and routing**. Gemini decides priority and department, an emergency rule in code overrides it, low-confidence complaints go to a person, and keyword rules take over if the AI is down. It has 96 tests and a 50-case triage evaluation.
+- **Next:** the Retell voice agent's endpoints (booking, rescheduling, cancellation, complaint status) and voice complaints.
+
+See [`serverless/README.md`](serverless/README.md) for the API, setup and evaluation.
 ---
 
 ## Table of Contents
