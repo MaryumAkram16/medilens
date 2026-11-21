@@ -4,11 +4,23 @@
  * process (one warm serverless instance).
  */
 import { DEPARTMENTS, type DepartmentCode } from '../complaints/catalog.js';
-import { contactKey, type AuditEntry, type ComplaintRecord, type ComplaintRepository, type InsertResult, type NewComplaint } from './types.js';
+import {
+  contactKey,
+  type AuditEntry,
+  type ComplaintPatch,
+  type ComplaintRecord,
+  type ComplaintRepository,
+  type InsertResult,
+  type NewComplaint,
+  type NewReview,
+  type ReviewRecord,
+  type ReviewedComplaint,
+} from './types.js';
 
 export class MemoryRepository implements ComplaintRepository {
   readonly complaints: ComplaintRecord[] = [];
   readonly auditLog: AuditEntry[] = [];
+  readonly reviews: ReviewRecord[] = [];
   private nextId = 1;
 
   constructor(private readonly now: () => Date = () => new Date()) {}
@@ -43,5 +55,34 @@ export class MemoryRepository implements ComplaintRepository {
 
   async audit(entry: AuditEntry): Promise<void> {
     this.auditLog.push(entry);
+  }
+
+  async updateComplaint(id: number, patch: ComplaintPatch): Promise<ComplaintRecord> {
+    const row = this.complaints.find((c) => c.id === id);
+    if (!row) throw new Error('complaint_not_found');
+    const { reviewed_at: _r, ...fields } = patch;
+    Object.assign(row, fields);
+    return row;
+  }
+
+  async hasReview(complaintId: number): Promise<boolean> {
+    return this.reviews.some((r) => r.complaint_id === complaintId);
+  }
+
+  async addReview(review: NewReview): Promise<boolean> {
+    if (review.first_review && this.reviews.some((r) => r.complaint_id === review.complaint_id && r.first_review)) return false;
+    this.reviews.push({ ...review, created_at: this.now().toISOString() });
+    return true;
+  }
+
+  async firstReviews(limit: number): Promise<ReviewedComplaint[]> {
+    return this.reviews
+      .filter((r) => r.first_review)
+      .reverse()
+      .slice(0, limit)
+      .map((r) => {
+        const c = this.complaints.find((x) => x.id === r.complaint_id)!;
+        return { ...r, complaint_code: c.complaint_code, details: c.details };
+      });
   }
 }

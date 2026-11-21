@@ -10,6 +10,8 @@ export const ROUTES = {
   complaints: 'submitComplaint',
   'complaint-status': 'complaintStatus',
   'complaints-summary': 'complaintsSummary',
+  'complaint-update': 'complaintUpdate',
+  'triage-accuracy': 'triageAccuracy',
   transcribe: 'transcribe',
   // Voice agent (browser)
   'create-web-call': 'createWebCall',

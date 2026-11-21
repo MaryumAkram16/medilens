@@ -4,3 +4,5 @@ node_modules/
 !.env.example
 .vercel/
 reports/
+# Exported staff-reviewed complaints contain real patient text
+reviewed*.json

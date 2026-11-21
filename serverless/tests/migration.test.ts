@@ -49,6 +49,8 @@ describe.skipIf(!url)('db/001_complaints.sql', () => {
   beforeAll(async () => {
     db = new pg.Client({ connectionString: url });
     await db.connect();
+    // Start clean even if an earlier run stopped half-way (later migrations' tables first).
+    await db.query('drop table if exists public.complaint_reviews');
     await db.query('drop table if exists public.call_actions');
     await db.query(sql('002_rollback.sql'));
     await db.query(sql('001_rollback.sql'));
@@ -280,18 +282,21 @@ describe.skipIf(!url)('db/003_voice.sql', () => {
       return `${(err as { code?: string }).code} ${(err as { constraint?: string }).constraint ?? ''}`.trim();
     }
   };
-  const clearComplaints = () => db.query('truncate public.complaint_audit, public.complaints');
+  const clearComplaints = () => db.query('truncate public.complaint_audit, public.complaints cascade');
 
   beforeAll(async () => {
     db = new pg.Client({ connectionString: url });
     await db.connect();
+    await db.query(sql('004_rollback.sql'));
     await clearComplaints();
     await db.query(sql('003_voice.sql'));
+    await db.query(sql('004_reviews.sql'));
   });
 
   afterAll(async () => {
     if (db) {
       await clearComplaints();
+      await db.query(sql('004_rollback.sql'));
       await db.query(sql('003_rollback.sql'));
       await db.query(sql('002_rollback.sql'));
       await db.query(sql('001_rollback.sql'));
@@ -323,6 +328,25 @@ describe.skipIf(!url)('db/003_voice.sql', () => {
     expect(await failCode(db.query(`insert into public.call_actions (call_id, action, reference) values ('call_1', 'deleted', 'x')`))).toMatch(/^23514/);
     const rls = await db.query(`select relrowsecurity from pg_class where relname = 'call_actions'`);
     expect(rls.rows[0].relrowsecurity).toBe(true);
+  });
+
+  it('004: keeps exactly one first review per complaint, with valid labels', async () => {
+    const { rows } = await complaint({ complaint_code: 'CMP-REVW01', details_hash: 'review-hash', phone: '0311 1111111' });
+    const id = rows[0].id;
+    const review = (first: boolean, to = 'billing') =>
+      db.query(
+        `insert into public.complaint_reviews (complaint_id, action, from_priority, from_department, to_priority, to_department, triage_source, first_review)
+         values ($1, 'confirmed', 'Medium', 'billing', 'Medium', $2, 'ai', $3)`,
+        [id, to, first],
+      );
+    await review(true);
+    expect(await failCode(review(true))).toBe('23505 complaint_reviews_one_first');
+    await expect(review(false)).resolves.toBeDefined();
+    expect(await failCode(review(false, 'finance'))).toMatch(/^23503/);
+    const rls = await db.query(`select relrowsecurity from pg_class where relname = 'complaint_reviews'`);
+    expect(rls.rows[0].relrowsecurity).toBe(true);
+    await db.query('delete from public.complaints where id = $1', [id]);
+    expect((await db.query('select count(*)::int as n from public.complaint_reviews where complaint_id = $1', [id])).rows[0].n).toBe(0);
   });
 
   it('rolls back and re-applies once no email-less complaints remain', async () => {

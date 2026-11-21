@@ -34,6 +34,7 @@ import { MemoryCallLog, SupabaseCallLog, type CallActionKind, type CallLog } fro
 import { summarizeCall, summaryKey, summaryRecipient, summaryToken, validSummaryToken } from './calls/summary.js';
 import { AUDIO_TYPES, MAX_AUDIO_BYTES, geminiTranscriber, looksLikeAudio, type Transcriber } from './voice/transcribe.js';
 import { retellWebCall, type CreateWebCall } from './voice/web-call.js';
+import { reviewComplaint, reviewSchema, triageAccuracy } from './complaints/review.js';
 
 export interface AppDeps {
   config: AppConfig;
@@ -69,6 +70,9 @@ export interface App {
   callSummary: Handler;
   // Retell webhook (call events, signed)
   retellWebhook: Handler;
+  // Staff (admin key)
+  complaintUpdate: Handler;
+  triageAccuracy: Handler;
 }
 
 const BASE_HEADERS: Record<string, string> = {
@@ -363,6 +367,38 @@ export function createApp(deps: AppDeps): App {
         const { found: _found, ...body } = result;
         return json(200, { success: true, ...body }, requestId, g.cors);
       });
+    },
+
+    async complaintUpdate(request) {
+      const requestId = randomUUID();
+      const g = await gate(request, 'POST', requestId);
+      if ('response' in g) return g.response;
+      if (!config.adminApiKey || !sameSecret(request.headers.get('x-admin-key'), config.adminApiKey)) {
+        return error(401, 'UNAUTHORIZED', 'A valid admin key is required.', requestId, g.cors);
+      }
+      const parsed = reviewSchema.safeParse(lowercaseKeys(g.body));
+      if (!parsed.success) return error(400, 'VALIDATION_ERROR', firstIssue(parsed.error), requestId, g.cors);
+      return guarded('complaint_update', requestId, g.cors, async () => {
+        const result = await reviewComplaint(
+          { repository, email, alertEmailOverride: config.alertEmailOverride, now, log: (msg, fields) => log('warn', msg, fields) },
+          parsed.data,
+        );
+        if (result.status === 200) log('info', 'complaint_reviewed', { request_id: requestId, complaint_code: result.body.complaint_code, review: result.body.review });
+        return json(result.status, result.body, requestId, g.cors);
+      });
+    },
+
+    async triageAccuracy(request) {
+      const requestId = randomUUID();
+      const g = await gate(request, 'GET', requestId);
+      if ('response' in g) return g.response;
+      // Contains complaint text: admin key only.
+      if (!config.adminApiKey || !sameSecret(request.headers.get('x-admin-key'), config.adminApiKey)) {
+        return error(401, 'UNAUTHORIZED', 'A valid admin key is required.', requestId, g.cors);
+      }
+      return guarded('triage_accuracy', requestId, g.cors, async () =>
+        json(200, { success: true, ...triageAccuracy(await repository.firstReviews(1000)) }, requestId, g.cors),
+      );
     },
 
     async complaintsSummary(request) {
