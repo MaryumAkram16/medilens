@@ -53,5 +53,7 @@ jobs:
         run: npm test
       - name: Offline triage evaluation
         run: npm run eval:triage
+      - name: Voice agent scenarios
+        run: npm run eval:voice
       - name: Dependency audit
         run: npm audit --audit-level=moderate
