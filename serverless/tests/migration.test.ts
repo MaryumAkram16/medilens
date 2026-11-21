@@ -49,6 +49,7 @@ describe.skipIf(!url)('db/001_complaints.sql', () => {
   beforeAll(async () => {
     db = new pg.Client({ connectionString: url });
     await db.connect();
+    await db.query('drop table if exists public.call_actions');
     await db.query(sql('002_rollback.sql'));
     await db.query(sql('001_rollback.sql'));
     await db.query(sql('001_complaints.sql'));
@@ -146,8 +147,6 @@ describe.skipIf(!url)('db/002_appointments.sql', () => {
   });
 
   afterAll(async () => {
-    await db?.query(sql('002_rollback.sql'));
-    await db?.query(sql('001_rollback.sql'));
     await db?.end();
   });
 
@@ -242,5 +241,97 @@ describe.skipIf(!url)('db/002_appointments.sql', () => {
     );
     expect(rows).toHaveLength(4);
     expect(rows.every((r) => r.relrowsecurity)).toBe(true);
+  });
+});
+
+// Runs last in this file and tears everything down.
+describe.skipIf(!url)('db/003_voice.sql', () => {
+  let db: pg.Client;
+  const complaint = (over: Record<string, unknown>) => {
+    const r = {
+      complaint_code: 'CMP-VOICE1',
+      patient_name: 'Test Patient',
+      email: null,
+      phone: '+92 300 1234567',
+      details: 'Charged twice',
+      details_hash: 'voice-hash',
+      priority: 'Medium',
+      department_code: 'billing',
+      category: 'Duplicate charge',
+      sentiment: 'Negative',
+      suggested_action: 'Refund',
+      confidence: 0.9,
+      triage_source: 'ai',
+      channel: 'voice',
+      call_id: 'call_1',
+      ...over,
+    };
+    const keys = Object.keys(r);
+    return db.query(
+      `insert into public.complaints (${keys.join(',')}) values (${keys.map((_, i) => `$${i + 1}`).join(',')}) returning *`,
+      Object.values(r),
+    );
+  };
+  const failCode = async (q: Promise<unknown>) => {
+    try {
+      await q;
+      return 'no error';
+    } catch (err) {
+      return `${(err as { code?: string }).code} ${(err as { constraint?: string }).constraint ?? ''}`.trim();
+    }
+  };
+  const clearComplaints = () => db.query('truncate public.complaint_audit, public.complaints');
+
+  beforeAll(async () => {
+    db = new pg.Client({ connectionString: url });
+    await db.connect();
+    await clearComplaints();
+    await db.query(sql('003_voice.sql'));
+  });
+
+  afterAll(async () => {
+    if (db) {
+      await clearComplaints();
+      await db.query(sql('003_rollback.sql'));
+      await db.query(sql('002_rollback.sql'));
+      await db.query(sql('001_rollback.sql'));
+      await db.end();
+    }
+  });
+
+  it('applies twice', async () => {
+    await expect(db.query(sql('003_voice.sql'))).resolves.toBeDefined();
+  });
+
+  it('accepts a voice complaint without an email and keys duplicates on the phone', async () => {
+    const { rows } = await complaint({});
+    expect(rows[0]).toMatchObject({ email: null, contact_key: '3001234567', call_id: 'call_1' });
+    expect(await failCode(complaint({ complaint_code: 'CMP-VOICE2', phone: '03001234567' }))).toBe('23505 complaints_no_duplicate_contact');
+  });
+
+  it('still keys web complaints on the email, ignoring case', async () => {
+    await complaint({ complaint_code: 'CMP-WEB001', email: 'patient@example.test', details_hash: 'web-hash', channel: 'web', call_id: null });
+    expect(
+      await failCode(complaint({ complaint_code: 'CMP-WEB002', email: ' PATIENT@example.test', phone: '0399 0000000', details_hash: 'web-hash' })),
+    ).toBe('23505 complaints_no_duplicate_contact');
+  });
+
+  it('allows one summary per call, and only known actions', async () => {
+    await db.query(`insert into public.call_actions (call_id, action, reference) values ('call_1', 'booked', 'APT-ABC234')`);
+    await db.query(`insert into public.call_actions (call_id, action, reference) values ('call_1', 'summary_sent', 'call_1')`);
+    expect(await failCode(db.query(`insert into public.call_actions (call_id, action, reference) values ('call_1', 'summary_sent', 'call_1')`))).toMatch(/^23505/);
+    expect(await failCode(db.query(`insert into public.call_actions (call_id, action, reference) values ('call_1', 'deleted', 'x')`))).toMatch(/^23514/);
+    const rls = await db.query(`select relrowsecurity from pg_class where relname = 'call_actions'`);
+    expect(rls.rows[0].relrowsecurity).toBe(true);
+  });
+
+  it('rolls back and re-applies once no email-less complaints remain', async () => {
+    await clearComplaints();
+    await db.query(sql('003_rollback.sql'));
+    const cols = await db.query(
+      `select column_name from information_schema.columns where table_name = 'complaints' and column_name in ('contact_key','call_id')`,
+    );
+    expect(cols.rows).toEqual([]);
+    await db.query(sql('003_voice.sql'));
   });
 });

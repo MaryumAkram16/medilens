@@ -25,9 +25,15 @@ import {
   complaintCheckArgs,
   rescheduleArgs,
   retellEnvelope,
+  retellWebhook,
+  voiceComplaintArgs,
 } from './booking/schema.js';
 import { SIGNATURE_HEADER, verifyRetellSignature } from './signature.js';
-import type { z } from 'zod';
+import { z } from 'zod';
+import { MemoryCallLog, SupabaseCallLog, type CallActionKind, type CallLog } from './calls/log.js';
+import { summarizeCall, summaryKey, summaryRecipient, summaryToken, validSummaryToken } from './calls/summary.js';
+import { AUDIO_TYPES, MAX_AUDIO_BYTES, geminiTranscriber, looksLikeAudio, type Transcriber } from './voice/transcribe.js';
+import { retellWebCall, type CreateWebCall } from './voice/web-call.js';
 
 export interface AppDeps {
   config: AppConfig;
@@ -35,6 +41,9 @@ export interface AppDeps {
   bookings?: BookingRepository;
   email?: EmailSender;
   classifier?: Classifier | null;
+  callLog?: CallLog;
+  transcriber?: Transcriber | null;
+  createWebCall?: CreateWebCall;
   now?: () => Date;
 }
 
@@ -53,6 +62,13 @@ export interface App {
   cancelStatus: Handler;
   confirmCancellation: Handler;
   complaintCheck: Handler;
+  submitVoiceComplaint: Handler;
+  // Browser
+  transcribe: Handler;
+  createWebCall: Handler;
+  callSummary: Handler;
+  // Retell webhook (call events, signed)
+  retellWebhook: Handler;
 }
 
 const BASE_HEADERS: Record<string, string> = {
@@ -119,6 +135,48 @@ export function createApp(deps: AppDeps): App {
   const booking = new BookingService({ repository: bookings, email, now, log: (msg, fields) => log('warn', msg, fields) });
   // Voice calls get their own budget: a single call makes several tool requests.
   const voiceLimiter = new RateLimiter(60_000);
+  const callLog =
+    deps.callLog ??
+    (config.supabase ? new SupabaseCallLog({ url: config.supabase.url, serviceKey: config.supabase.serviceKey }) : new MemoryCallLog(now));
+  const transcriber =
+    deps.transcriber !== undefined
+      ? deps.transcriber
+      : config.gemini
+        ? geminiTranscriber({ apiKey: config.gemini.apiKey, model: config.gemini.model })
+        : null;
+  const createWebCall = deps.createWebCall ?? (config.retellApiKey ? retellWebCall(config.retellApiKey) : null);
+  const tokenKey = config.summarySecret ? summaryKey(config.summarySecret) : null;
+  const webCallIpLimiter = new RateLimiter(10 * 60_000);
+  const webCallGlobalLimiter = new RateLimiter(60 * 60_000);
+  const passcodeLimiter = new RateLimiter(10 * 60_000);
+  const transcribeLimiter = new RateLimiter(60_000);
+
+  /** Notes what a voice tool did, for the after-call summary. Never fails the tool. */
+  async function note(callId: string | null, action: CallActionKind, result: VoiceResult, email: string | null = null) {
+    if (!callId || !result.success) return;
+    const pick = (k: string) => (typeof result[k] === 'string' || typeof result[k] === 'number' || typeof result[k] === 'boolean' ? (result[k] as string) : null);
+    const reference = pick('appointment_id') ?? pick('complaint_code');
+    if (!reference) return;
+    try {
+      await callLog.record({
+        call_id: callId,
+        action,
+        reference,
+        details: {
+          doctor_name: pick('doctor_name'),
+          department: pick('department'),
+          appointment_date: pick('appointment_date'),
+          appointment_time: pick('appointment_time'),
+          department_name: pick('department_name'),
+          expected_response_hours: pick('expected_response_hours'),
+          emergency: pick('emergency'),
+        },
+        email,
+      });
+    } catch (err) {
+      log('warn', 'call_log_failed', { call_id: callId, action, reason: err instanceof Error ? err.message : 'unknown' });
+    }
+  }
 
   type Call = { callId: string | null; fromNumber: string | null };
   type VoiceFn<S extends z.ZodType> = (args: z.infer<S>, call: Call) => Promise<VoiceResult>;
@@ -218,6 +276,7 @@ export function createApp(deps: AppDeps): App {
     request: Request,
     method: 'GET' | 'POST',
     requestId: string,
+    maxBytes: number = config.maxBodyBytes,
   ): Promise<{ response: Response } | { body: unknown; cors: Record<string, string> }> {
     const cors = corsHeaders(request);
     if (cors === null) return { response: error(403, 'ORIGIN_NOT_ALLOWED', 'This origin is not allowed.', requestId) };
@@ -238,7 +297,7 @@ export function createApp(deps: AppDeps): App {
     if (!(request.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
       return { response: error(415, 'UNSUPPORTED_MEDIA_TYPE', 'Send JSON (content-type: application/json).', requestId, cors) };
     }
-    const raw = await readBody(request, config.maxBodyBytes);
+    const raw = await readBody(request, maxBytes);
     if (raw === null) return { response: error(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.', requestId, cors) };
     try {
       return { body: JSON.parse(raw), cors };
@@ -325,7 +384,9 @@ export function createApp(deps: AppDeps): App {
       const phone = phoneOf(a.phone_no, call);
       if (!phone) return askPhone;
       const email = a.email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a.email) ? a.email.toLowerCase() : null;
-      return booking.book({ name: a.name, phone, email, slotId: Number(a.schedule_id), callId: call.callId });
+      const result = await booking.book({ name: a.name, phone, email, slotId: Number(a.schedule_id), callId: call.callId });
+      await note(call.callId, 'booked', result, email);
+      return result;
     }),
 
     appointmentCheck: voice('appointment_check', appointmentArgs, (a, call) => {
@@ -333,14 +394,16 @@ export function createApp(deps: AppDeps): App {
       return o.ok ? booking.check(o.code, o.phone) : Promise.resolve(o.reply);
     }),
 
-    confirmReschedule: voice('confirm_reschedule', rescheduleArgs, (a, call) => {
+    confirmReschedule: voice('confirm_reschedule', rescheduleArgs, async (a, call) => {
       const o = owner(a, call);
-      if (!o.ok) return Promise.resolve(o.reply);
+      if (!o.ok) return o.reply;
       const target: { slotId?: number; date?: string; time?: string } = {};
       if (a.schedule_id) target.slotId = Number(a.schedule_id);
       if (a.appointment_date) target.date = a.appointment_date;
       if (a.slot_start_time) target.time = a.slot_start_time;
-      return booking.reschedule(o.code, o.phone, target);
+      const result = await booking.reschedule(o.code, o.phone, target);
+      await note(call.callId, 'rescheduled', result);
+      return result;
     }),
 
     cancelStatus: voice('cancel_status', appointmentArgs, (a, call) => {
@@ -348,9 +411,12 @@ export function createApp(deps: AppDeps): App {
       return o.ok ? booking.cancelStatus(o.code, o.phone) : Promise.resolve(o.reply);
     }),
 
-    confirmCancellation: voice('confirm_cancellation', appointmentArgs, (a, call) => {
+    confirmCancellation: voice('confirm_cancellation', appointmentArgs, async (a, call) => {
       const o = owner(a, call);
-      return o.ok ? booking.cancel(o.code, o.phone) : Promise.resolve(o.reply);
+      if (!o.ok) return o.reply;
+      const result = await booking.cancel(o.code, o.phone);
+      await note(call.callId, 'cancelled', result);
+      return result;
     }),
 
     complaintCheck: voice('complaint_check', complaintCheckArgs, async (a, call) => {
@@ -367,6 +433,146 @@ export function createApp(deps: AppDeps): App {
       )) as VoiceResult;
     }),
 
+    submitVoiceComplaint: voice('submit_complaint', voiceComplaintArgs, async (a, call) => {
+      const phone = phoneOf(a.phone_no, call);
+      if (!phone) return { success: false, message: 'Could you tell me your phone number, so we can reach you about this complaint?' };
+      const emailAddr = a.email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a.email) ? a.email.toLowerCase() : null;
+      const result = await service.submit({ name: a.name, email: emailAddr, phone, details: a.details, channel: 'voice', call_id: call.callId });
+      if (result.status === 409) {
+        return { success: false, message: 'You have already filed this same complaint. If you have the complaint code, I can check its status for you.' };
+      }
+      const r: VoiceResult = { ...result.body, success: true, message: result.body.spoken_message };
+      await note(call.callId, 'complaint_filed', r, emailAddr);
+      return r;
+    }),
+
+    async transcribe(request) {
+      const requestId = randomUUID();
+      // Base64 adds a third, plus a little JSON around it.
+      const g = await gate(request, 'POST', requestId, Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 4096);
+      if ('response' in g) return g.response;
+      if (!transcriber) return error(503, 'VOICE_INPUT_UNAVAILABLE', 'Voice input is not available right now. Please type your complaint.', requestId, g.cors);
+      const rate = transcribeLimiter.check(`ip:${clientIp(request)}`, 5, now().getTime());
+      if (!rate.allowed) return error(429, 'RATE_LIMITED', 'Too many recordings. Please wait a minute.', requestId, { ...g.cors, 'retry-after': String(rate.retryAfterSeconds) });
+      const parsed = z
+        .object({ audio_base64: z.string().min(1), mime_type: z.string().trim().toLowerCase() })
+        .safeParse(lowercaseKeys(g.body));
+      if (!parsed.success) return error(400, 'VALIDATION_ERROR', firstIssue(parsed.error), requestId, g.cors);
+      const mime = parsed.data.mime_type.split(';')[0]!.trim();
+      if (!(AUDIO_TYPES as readonly string[]).includes(mime)) {
+        return error(415, 'UNSUPPORTED_AUDIO', `Audio must be one of: ${AUDIO_TYPES.join(', ')}.`, requestId, g.cors);
+      }
+      const audio = Buffer.from(parsed.data.audio_base64, 'base64');
+      if (audio.byteLength === 0 || audio.byteLength > MAX_AUDIO_BYTES) {
+        return error(413, 'AUDIO_TOO_LARGE', 'That recording is too long. Please keep it under about two minutes.', requestId, g.cors);
+      }
+      if (!looksLikeAudio(audio, mime)) return error(415, 'UNSUPPORTED_AUDIO', 'That file does not look like audio.', requestId, g.cors);
+      const outcome = await transcriber(audio, mime);
+      if (!outcome.ok) {
+        log('warn', 'transcribe_failed', { request_id: requestId, reason: outcome.reason });
+        return error(502, 'TRANSCRIBE_FAILED', "Sorry, I couldn't understand that recording. Please try again or type your complaint.", requestId, g.cors);
+      }
+      if (!outcome.result.transcript) {
+        return error(422, 'NO_SPEECH', "I couldn't hear any speech in that recording. Please try again.", requestId, g.cors);
+      }
+      // The transcript is shown to the patient to check and edit before they submit it.
+      return json(200, { success: true, transcript: outcome.result.transcript, language: outcome.result.language }, requestId, g.cors);
+    },
+
+    async createWebCall(request) {
+      const requestId = randomUUID();
+      const g = await gate(request, 'POST', requestId);
+      if ('response' in g) return g.response;
+      if (!createWebCall || !config.retellAgentId || !tokenKey) {
+        return error(503, 'WEB_CALL_NOT_CONFIGURED', 'The voice demo is not switched on.', requestId, g.cors);
+      }
+      const ip = clientIp(request);
+      if (config.webCallPasscode) {
+        const given = (g.body as { passcode?: unknown } | null)?.passcode;
+        const guesses = passcodeLimiter.check(`ip:${ip}`, 10, now().getTime());
+        if (!guesses.allowed) return error(429, 'RATE_LIMITED', 'Too many attempts. Please wait a few minutes.', requestId, { ...g.cors, 'retry-after': String(guesses.retryAfterSeconds) });
+        if (typeof given !== 'string' || !sameSecret(given.trim(), config.webCallPasscode)) {
+          return error(401, 'PASSCODE_REQUIRED', 'This demo needs a valid demo code.', requestId, g.cors);
+        }
+      }
+      const perIp = webCallIpLimiter.check(`ip:${ip}`, config.webCall.perIpPer10Min, now().getTime());
+      const overall = perIp.allowed ? webCallGlobalLimiter.check('all', config.webCall.globalPerHour, now().getTime()) : perIp;
+      if (!perIp.allowed || !overall.allowed) {
+        return error(429, 'RATE_LIMITED', 'The voice demo is busy. Please try again later.', requestId, { ...g.cors, 'retry-after': String(overall.retryAfterSeconds) });
+      }
+      try {
+        const call = await createWebCall(config.retellAgentId);
+        log('info', 'web_call_created', { request_id: requestId, call_id: call.call_id });
+        return json(
+          201,
+          { success: true, call_id: call.call_id, access_token: call.access_token, summary_token: summaryToken(call.call_id, tokenKey) },
+          requestId,
+          g.cors,
+        );
+      } catch (err) {
+        log('error', 'web_call_failed', { request_id: requestId, reason: err instanceof Error ? err.message.slice(0, 120) : 'unknown' });
+        return error(502, 'WEB_CALL_FAILED', "I couldn't start the call. Please try again in a moment.", requestId, g.cors);
+      }
+    },
+
+    async callSummary(request) {
+      const requestId = randomUUID();
+      const g = await gate(request, 'GET', requestId);
+      if ('response' in g) return g.response;
+      if (!tokenKey) return error(503, 'NOT_CONFIGURED', 'Call summaries are not switched on.', requestId, g.cors);
+      const params = new URL(request.url).searchParams;
+      const callId = params.get('call_id') ?? '';
+      const token = params.get('token') ?? '';
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(callId) || !validSummaryToken(callId, token, tokenKey)) {
+        return error(403, 'FORBIDDEN', 'This summary is not available.', requestId, g.cors);
+      }
+      return guarded('call_summary', requestId, g.cors, async () =>
+        json(200, { success: true, ...summarizeCall(callId, await callLog.list(callId)) }, requestId, g.cors),
+      );
+    },
+
+    async retellWebhook(request) {
+      const requestId = randomUUID();
+      if (request.method !== 'POST') return error(405, 'METHOD_NOT_ALLOWED', 'Use POST.', requestId, { allow: 'POST' });
+      if (!config.retellApiKey) return error(503, 'VOICE_NOT_CONFIGURED', 'The voice service is not switched on.', requestId);
+      // Call events carry the whole transcript, so they get a larger limit.
+      const raw = await readBody(request, 1024 * 1024);
+      if (raw === null) return error(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.', requestId);
+      if (!(await verifyRetellSignature(raw, config.retellApiKey, request.headers.get(SIGNATURE_HEADER)))) {
+        log('warn', 'webhook_bad_signature', { request_id: requestId });
+        return error(401, 'UNAUTHORIZED', 'This request could not be authorized.', requestId);
+      }
+      let event: z.infer<typeof retellWebhook>;
+      try {
+        const parsed = retellWebhook.safeParse(JSON.parse(raw));
+        if (!parsed.success) return error(400, 'INVALID_REQUEST', 'Unexpected webhook body.', requestId);
+        event = parsed.data;
+      } catch {
+        return error(400, 'INVALID_JSON', 'Request body is not valid JSON.', requestId);
+      }
+      // Only the end of a call matters here; the transcript itself is not stored.
+      if (event.event !== 'call_ended') return new Response(null, { status: 204 });
+      const callId = event.call.call_id;
+      return guarded('retell_webhook', requestId, {}, async () => {
+        const actions = await callLog.list(callId);
+        const to = summaryRecipient(actions);
+        if (actions.length === 0 || !to) return new Response(null, { status: 204 });
+        if (!(await callLog.claimSummary(callId))) return new Response(null, { status: 204 }); // already sent
+        const summary = summarizeCall(callId, actions);
+        try {
+          await email.send({
+            to,
+            subject: 'Your MediLens call summary',
+            text: ['Here is what we did during your call:', '', summary.text, '', 'MediLens Clinic (demo system)'].join('\n'),
+          });
+          log('info', 'call_summary_sent', { request_id: requestId, call_id: callId, actions: actions.length });
+        } catch (err) {
+          log('warn', 'call_summary_email_failed', { request_id: requestId, call_id: callId, reason: err instanceof Error ? err.message.slice(0, 120) : 'unknown' });
+        }
+        return new Response(null, { status: 204 });
+      });
+    },
+
     async health(request) {
       const requestId = randomUUID();
       if (request.method !== 'GET') return error(405, 'METHOD_NOT_ALLOWED', 'Use GET.', requestId, { allow: 'GET' });
@@ -378,6 +584,8 @@ export function createApp(deps: AppDeps): App {
           ai_triage: classifier ? 'gemini' : 'keywords_only',
           email: email.kind,
           voice: config.retellApiKey ? 'on' : 'off',
+          web_call: createWebCall && config.retellAgentId ? (config.webCallPasscode ? 'on_with_passcode' : 'on') : 'off',
+          voice_input: transcriber ? 'on' : 'off',
           time: now().toISOString(),
         },
         requestId,

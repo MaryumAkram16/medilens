@@ -21,7 +21,7 @@ export interface SupabaseOptions {
 }
 
 const COLUMNS =
-  'id,complaint_code,patient_name,email,phone,details,details_hash,channel,category_hint,priority_hint,priority,department_code,category,sentiment,suggested_action,confidence,triage_source,emergency,needs_review,status,created_at';
+  'id,complaint_code,patient_name,email,phone,details,details_hash,channel,call_id,category_hint,priority_hint,priority,department_code,category,sentiment,suggested_action,confidence,triage_source,emergency,needs_review,status,created_at';
 
 export class SupabaseRepository implements ComplaintRepository {
   private readonly base: string;
@@ -54,10 +54,10 @@ export class SupabaseRepository implements ComplaintRepository {
     return (await res.json()) as T[];
   }
 
-  async isDuplicate(email: string, detailsHash: string): Promise<boolean> {
+  async isDuplicate(contactKey: string, detailsHash: string): Promise<boolean> {
     const q = new URLSearchParams({
       select: 'id',
-      email_norm: `eq.${email.trim().toLowerCase()}`,
+      contact_key: `eq.${contactKey}`,
       details_hash: `eq.${detailsHash}`,
       limit: '1',
     });

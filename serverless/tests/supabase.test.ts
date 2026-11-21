@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SupabaseRepository } from '../lib/data/supabase.js';
-import { DataSourceError, type NewComplaint } from '../lib/data/types.js';
+import { DataSourceError, contactKey, type NewComplaint } from '../lib/data/types.js';
 
 const row = {
   id: 1,
@@ -44,10 +44,10 @@ const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
 describe('SupabaseRepository', () => {
   it('authenticates with the service key and URL-encodes patient values in filters', async () => {
     const { r, calls } = repo(() => ok([]));
-    await r.isDuplicate(' Odd+Name&x=1@Example.test ', 'abc');
+    await r.isDuplicate(contactKey(' Odd+Name&x=1@Example.test ', '0300'), 'abc');
     const url = new URL(calls[0]!.url);
     expect(url.origin + url.pathname).toBe('https://abc.supabase.co/rest/v1/complaints');
-    expect(url.searchParams.get('email_norm')).toBe('eq.odd+name&x=1@example.test');
+    expect(url.searchParams.get('contact_key')).toBe('eq.odd+name&x=1@example.test');
     expect(url.searchParams.get('details_hash')).toBe('eq.abc');
     const headers = calls[0]!.init.headers as Record<string, string>;
     expect(headers.apikey).toBe('service-key');
@@ -64,7 +64,7 @@ describe('SupabaseRepository', () => {
   });
 
   it('maps the duplicate constraint to a duplicate result, and other conflicts to an error', async () => {
-    const dup = repo(() => ok({ code: '23505', message: 'duplicate key value violates unique constraint "complaints_no_duplicate"' }, 409));
+    const dup = repo(() => ok({ code: '23505', message: 'duplicate key value violates unique constraint "complaints_no_duplicate_contact"' }, 409));
     await expect(dup.r.insert(row as unknown as NewComplaint)).resolves.toEqual({ ok: false, reason: 'duplicate' });
     const other = repo(() => ok({ code: '23505', message: 'complaints_complaint_code_key' }, 409));
     await expect(other.r.insert(row as unknown as NewComplaint)).rejects.toBeInstanceOf(DataSourceError);

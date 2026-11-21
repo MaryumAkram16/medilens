@@ -6,7 +6,7 @@
  * without a network.
  */
 import { createHash, randomInt } from 'node:crypto';
-import type { ComplaintRecord, ComplaintRepository } from '../data/types.js';
+import { contactKey, type ComplaintRecord, type ComplaintRepository } from '../data/types.js';
 import type { EmailSender } from '../notify/email.js';
 import { DEPARTMENTS, type DepartmentCode, type Priority } from './catalog.js';
 import type { Classifier } from './gemini.js';
@@ -83,7 +83,7 @@ export class ComplaintService {
     const hash = detailsHash(input.details);
 
     // Checked before the AI call so a resubmission costs no AI quota.
-    if (await repository.isDuplicate(input.email, hash)) return duplicate();
+    if (await repository.isDuplicate(contactKey(input.email, input.phone), hash)) return duplicate();
 
     const triage = await this.triage(input.details);
     const inserted = await repository.insert({
@@ -94,6 +94,7 @@ export class ComplaintService {
       details: input.details,
       details_hash: hash,
       channel: input.channel,
+      call_id: input.call_id ?? null,
       category_hint: input.type ?? null,
       priority_hint: input.priority ?? null,
       priority: triage.priority,
@@ -178,7 +179,7 @@ export class ComplaintService {
         '',
         `Suggested action: ${record.suggested_action}`,
         '',
-        `Patient: ${record.patient_name} · ${record.email} · ${record.phone}`,
+        `Patient: ${record.patient_name} · ${record.email ?? 'no email'} · ${record.phone}`,
         '',
         record.details,
       ]
@@ -188,6 +189,7 @@ export class ComplaintService {
   }
 
   private async confirmToPatient(record: ComplaintRecord, triage: TriageResult): Promise<void> {
+    if (!record.email) return; // voice complaint without an email: the caller heard the code
     const dept = DEPARTMENTS[record.department_code];
     await this.deps.email.send({
       to: record.email,
@@ -229,7 +231,7 @@ export class ComplaintService {
     const digits = (s: string) => s.replace(/\D/g, '');
     const matches =
       record !== null &&
-      ((contact.email !== undefined && contact.email === record.email.trim().toLowerCase()) ||
+      ((contact.email !== undefined && record.email !== null && contact.email === record.email.trim().toLowerCase()) ||
         (contact.phone !== undefined && digits(contact.phone).length >= 7 && digits(contact.phone) === digits(record.phone)));
     // Same answer for "no such code" and "wrong contact", so codes can't be probed.
     if (!record || !matches) return { found: false as const };

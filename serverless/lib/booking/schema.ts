@@ -55,3 +55,17 @@ export const complaintCheckArgs = z.object({
   phone_no: optionalStr(32),
   email: optionalStr(254),
 });
+
+/** submit_complaint: the agent collects a name, phone and the complaint; email is optional by voice. */
+export const voiceComplaintArgs = z.object({
+  name: str(100).min(1, 'name is required'),
+  phone_no: optionalStr(32),
+  email: optionalStr(254),
+  details: str(4000).min(10, 'details must be at least 10 characters'),
+});
+
+/** POST /api/retell-webhook: Retell call events. */
+export const retellWebhook = z.object({
+  event: z.string(),
+  call: z.object({ call_id: z.string().max(128) }).loose(),
+});

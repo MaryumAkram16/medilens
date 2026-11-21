@@ -18,7 +18,11 @@ export const submitComplaintSchema = z.object({
   channel: z.enum(['web', 'voice']).default('web'),
 });
 
-export type SubmitComplaintInput = z.infer<typeof submitComplaintSchema>;
+/** What the service files: the web form's fields, or the voice tool's (email optional, call id). */
+export type SubmitComplaintInput = Omit<z.infer<typeof submitComplaintSchema>, 'email'> & {
+  email: string | null;
+  call_id?: string | null;
+};
 
 /** POST /api/complaint-status: the code plus the email or phone used to file it. */
 export const complaintStatusSchema = z

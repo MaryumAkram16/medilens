@@ -4,9 +4,7 @@
  * process (one warm serverless instance).
  */
 import { DEPARTMENTS, type DepartmentCode } from '../complaints/catalog.js';
-import type { AuditEntry, ComplaintRecord, ComplaintRepository, InsertResult, NewComplaint } from './types.js';
-
-const normEmail = (email: string) => email.trim().toLowerCase();
+import { contactKey, type AuditEntry, type ComplaintRecord, type ComplaintRepository, type InsertResult, type NewComplaint } from './types.js';
 
 export class MemoryRepository implements ComplaintRepository {
   readonly complaints: ComplaintRecord[] = [];
@@ -15,12 +13,12 @@ export class MemoryRepository implements ComplaintRepository {
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
-  async isDuplicate(email: string, detailsHash: string): Promise<boolean> {
-    return this.complaints.some((c) => normEmail(c.email) === normEmail(email) && c.details_hash === detailsHash);
+  async isDuplicate(key: string, detailsHash: string): Promise<boolean> {
+    return this.complaints.some((c) => contactKey(c.email, c.phone) === key && c.details_hash === detailsHash);
   }
 
   async insert(complaint: NewComplaint): Promise<InsertResult> {
-    if (await this.isDuplicate(complaint.email, complaint.details_hash)) return { ok: false, reason: 'duplicate' };
+    if (await this.isDuplicate(contactKey(complaint.email, complaint.phone), complaint.details_hash)) return { ok: false, reason: 'duplicate' };
     const record: ComplaintRecord = {
       ...complaint,
       id: this.nextId++,
