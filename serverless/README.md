@@ -226,7 +226,7 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 ## Setup
 
 1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), [`db/002_appointments.sql`](db/002_appointments.sql) and [`db/003_voice.sql`](db/003_voice.sql), in that order, in the SQL editor. Each is idempotent and has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
-2. **Vercel:** import the repository with **Root Directory = `serverless`**, then add the environment variables below.
+2. **Vercel:** import the repository with **Root Directory = `serverless`**, then add the environment variables below. All endpoints run in **one function** ([`api/router.ts`](api/router.ts)), and `vercel.json` rewrites `/api/<route>` to it. That's because Vercel's Hobby plan allows at most 12 functions per deployment, and this backend has 16 endpoints. A test fails CI if `api/` ever grows past that limit.
 3. **Check:** `GET /api/health` should show `data_source: "supabase"` and `ai_triage: "gemini"`.
 
 | Variable | Needed | Purpose |
