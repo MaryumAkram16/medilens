@@ -12,6 +12,14 @@ export interface AppConfig {
   adminApiKey: string | null;
   /** Verifies Retell's request signatures. Voice endpoints are off without it. */
   retellApiKey: string | null;
+  /** Agent the browser "Start call" button connects to. Null switches /api/create-web-call off. */
+  retellAgentId: string | null;
+  /** When set, a browser must send this code to start a call. */
+  webCallPasscode: string | null;
+  /** Browser calls cost Retell minutes: per-IP and overall caps. */
+  webCall: { perIpPer10Min: number; globalPerHour: number };
+  /** Signs after-call summary tokens. Defaults to a key derived from RETELL_API_KEY. */
+  summarySecret: string | null;
   maxBodyBytes: number;
   rateLimit: { windowMs: number; perIp: number };
 }
@@ -59,6 +67,13 @@ export function loadConfig(env: Env = process.env): AppConfig {
       .filter(Boolean),
     adminApiKey: get('ADMIN_API_KEY') || null,
     retellApiKey: get('RETELL_API_KEY') || null,
+    retellAgentId: get('RETELL_AGENT_ID') || null,
+    webCallPasscode: get('WEB_CALL_PASSCODE') || null,
+    webCall: {
+      perIpPer10Min: Number(get('WEB_CALL_MAX_PER_IP') || 3),
+      globalPerHour: Number(get('WEB_CALL_MAX_PER_HOUR') || 30),
+    },
+    summarySecret: get('SUMMARY_SECRET') || get('RETELL_API_KEY') || null,
     maxBodyBytes: 16 * 1024,
     rateLimit: { windowMs: 60_000, perIp: 10 }, // the n8n workflow's 10 requests per minute
   };

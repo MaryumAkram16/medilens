@@ -2,11 +2,12 @@
 
 TypeScript serverless functions (Vercel) that replace Maryum Akram's MediLens n8n modules. The n8n exports in the repository root stay as the design record.
 
-**Built so far:**
-- department-based complaint management with AI triage and routing
-- the **Retell voice agent's tools**: doctor availability, booking, rescheduling, cancellation and complaint status
+**What's here:**
+- **Complaint management with AI triage and routing**, typed or spoken
+- **The Retell voice agent's tools:** doctor availability, booking, rescheduling, cancellation, complaint status, and filing a complaint by voice
+- **The browser side of the voice agent:** a "Start call" endpoint, speech-to-text for spoken complaints, and an after-call summary on the page and by email
 
-**Next:** voice complaints (record → text → triage) and the browser "Start call" endpoint.
+[How to build the frontend page](#building-the-frontend-page) shows how the pieces fit together.
 
 > **Demo system.** Use synthetic data only. It is not a medical service and gives no medical advice. In an emergency, call **1122**.
 
@@ -101,7 +102,51 @@ Requires the `x-admin-key: <ADMIN_API_KEY>` header. It returns patient data, so 
 
 ### `GET /api/health`
 
-`{ status, data_source, ai_triage: "gemini" | "keywords_only", email: "smtp" | "log", time }`. It never shows a secret.
+`{ status, data_source, ai_triage, email, voice, web_call, voice_input, time }`. It shows which features are on (`gemini` or `keywords_only`, `smtp` or `log`, `on`, `off` or `on_with_passcode`), and never a secret.
+
+### `POST /api/transcribe`
+
+Turns a recorded complaint into text. The patient then **checks and edits the text** before submitting it to `/api/complaints` with `"channel": "voice"`.
+
+```json
+{ "audio_base64": "<base64 of the recording>", "mime_type": "audio/webm;codecs=opus" }
+```
+
+- **Accepted types:** `audio/webm`, `audio/ogg`, `audio/mp4`, `audio/mpeg`, `audio/wav`, `audio/aac`. The file's first bytes must match the declared type.
+- **Size:** up to 3 MB of audio, which is a few minutes of Opus.
+- **Limit:** 5 recordings per minute per IP.
+- **`200`:** `{ success, transcript, language: "english" | "urdu" | "mixed" | "other" }`. Urdu speech is written in Roman Urdu, so the triage keywords still match.
+- **Errors:** `422 NO_SPEECH`, `502 TRANSCRIBE_FAILED`, and `503` when no Gemini key is set (ask the patient to type instead).
+- **Privacy:** the audio is sent to Gemini once and discarded. It is never stored or logged.
+
+### `POST /api/create-web-call`
+
+Starts a browser voice call with your Retell agent (`RETELL_AGENT_ID`). The body is `{}`, or `{ "passcode": "..." }` when `WEB_CALL_PASSCODE` is set.
+
+- **`201`:** `{ success, call_id, access_token, summary_token }`
+  - Pass `access_token` to the Retell web client to join the call. It is short-lived, and the API key never leaves the server.
+  - Keep `call_id` and `summary_token` for the after-call summary.
+- **Limits, because calls cost Retell minutes:**
+  - 3 calls per IP per 10 minutes, and 30 per hour overall (`WEB_CALL_MAX_PER_IP`, `WEB_CALL_MAX_PER_HOUR`)
+  - wrong passcodes limited to 10 per 10 minutes
+- **Errors:** `401 PASSCODE_REQUIRED`, `429`, `502` (Retell failed), `503` (not configured)
+
+### `GET /api/call-summary?call_id=…&token=…`
+
+What the call did, for the page to show once it ends. Only the `summary_token` from `create-web-call` opens it, so call ids can't be used to browse other people's calls.
+
+```json
+{
+  "success": true,
+  "call_id": "call_…",
+  "actions": [{ "action": "booked", "reference": "APT-7K2QXM", "text": "Booked APT-7K2QXM with Dr. Sara Malik (Cardiology) on 2026-11-24 at 10:00." }],
+  "text": "• Booked APT-7K2QXM with …"
+}
+```
+
+### `POST /api/retell-webhook`
+
+Set this as the agent's webhook URL in Retell. It verifies Retell's signature. When a call ends, it emails the summary to the address given during the call, **once per call**, even if Retell sends the event twice. The transcript in the event is not stored.
 
 ## Voice agent tools (Retell)
 
@@ -118,11 +163,36 @@ Every answer is JSON with `success` and a `message` written for the agent to **s
 | `cancel-appointment-` | `/api/cancel-status` | `appointment_id`, `phone_no` |
 | `confirm_cancellation` | `/api/confirm-cancellation` | `appointment_id`, `phone_no` |
 | `complaint_check` | `/api/complaint-check` | `complaint_id`, plus `phone_no` or `email` |
+| `submit_complaint` (new) | `/api/submit-complaint` | `name`, `phone_no`, `details`, optional `email` |
+
+`submit_complaint` runs the same AI triage as the web form, and the agent reads back the department and the complaint code. If the caller describes an emergency, the reply **starts with the emergency notice**. Email is optional by voice, because spelling an email over the phone is unreliable. Duplicates are then detected by phone number.
 
 **Changes to make in the Retell agent:**
 1. Point each tool's URL at your deployment.
 2. Add a `phone_no` parameter to the check, cancel and reschedule tools. On phone calls the caller's number is used automatically if the agent doesn't collect one.
-3. Appointment IDs are now codes like `APT-7K2QXM`, and the agent reads them back letter by letter. Callers can say them with or without spaces.
+3. Add the `submit_complaint` tool.
+4. Set the agent's **webhook URL** to `/api/retell-webhook`, for the after-call email.
+5. Appointment IDs are now codes like `APT-7K2QXM`, and the agent reads them back letter by letter. Callers can say them with or without spaces.
+6. In Retell's settings for this agent, turn off storing recordings, since this is a demo with synthetic data.
+
+## Building the frontend page
+
+The page you build (like Lumina's) talks only to these endpoints. It never holds a key.
+
+**Voice agent (talk to MediLens):**
+1. "Start call" → `POST /api/create-web-call`. Ask for the demo code first if you set one.
+2. Join with the [Retell web client](https://docs.retellai.com/), using `access_token`. The caller hears the agent, and the client gives you the live transcript to show as text.
+3. When the call ends → `GET /api/call-summary?call_id=…&token=<summary_token>`, and show `text` or `actions` as the written summary.
+
+**Complaint form (typed or spoken):**
+1. **Typed:** `POST /api/complaints`.
+2. **Spoken:** record with the browser's `MediaRecorder` (ask for microphone consent and say the audio isn't stored) → `POST /api/transcribe` → put `transcript` in the text box for the patient to check and edit → `POST /api/complaints` with `"channel": "voice"`.
+3. **Show the answer:** `message`, `department_name` and `expected_response_hours`. If `emergency_notice` is set, show it first and prominently.
+4. **Read it aloud:** speak `spoken_message` with the browser's `speechSynthesis`. It's free, with no extra key.
+
+**Status lookup:** `POST /api/complaint-status` with the code plus the email or phone used.
+
+Add your page's address to `ALLOWED_ORIGINS`, or the browser will be refused.
 
 ### What changed from the n8n booking workflow
 
@@ -155,7 +225,7 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 
 ## Setup
 
-1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), then [`db/002_appointments.sql`](db/002_appointments.sql), in the SQL editor. Both are idempotent, and each has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
+1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), [`db/002_appointments.sql`](db/002_appointments.sql) and [`db/003_voice.sql`](db/003_voice.sql), in that order, in the SQL editor. Each is idempotent and has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
 2. **Vercel:** import the repository with **Root Directory = `serverless`**, then add the environment variables below.
 3. **Check:** `GET /api/health` should show `data_source: "supabase"` and `ai_triage: "gemini"`.
 
@@ -169,18 +239,22 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 | `ALLOWED_ORIGINS` | for a browser frontend | comma-separated origins, such as your demo page |
 | `ADMIN_API_KEY` | for the summary | the summary endpoint is off without it |
 | `ALERT_EMAIL_OVERRIDE` | no | demo setting: every department alert goes to this inbox |
-| `RETELL_API_KEY` | for the voice tools | verifies Retell's signatures. The voice endpoints are off without it. |
+| `RETELL_API_KEY` | for the voice tools | verifies Retell's signatures and starts web calls. The voice endpoints are off without it. |
+| `RETELL_AGENT_ID` | for "Start call" | the agent browser calls connect to |
+| `WEB_CALL_PASSCODE` | no | visitors must enter this code to start a call |
+| `WEB_CALL_MAX_PER_IP`, `WEB_CALL_MAX_PER_HOUR` | no | call caps, default 3 per IP per 10 minutes and 30 per hour |
+| `SUMMARY_SECRET` | no | signs summary links. It defaults to a key derived from `RETELL_API_KEY`. |
 
 ## Tests
 
 ```bash
 npm ci
-npm test                 # 146 tests, plus 16 database tests when TEST_DATABASE_URL is set
+npm test                 # 178 tests, plus 21 database tests when TEST_DATABASE_URL is set
 npm run typecheck
 npm run eval:triage      # offline triage evaluation (no AI)
 ```
 
-CI runs the type check, all 162 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
+CI runs the type check, all 199 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
 
 ## Triage evaluation
 

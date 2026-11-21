@@ -9,13 +9,13 @@ This system was built collaboratively. Module ownership:
 - **Maryum Akram** — Hospital Admin Command Center, Department-Based Complaint Management, Voice Appointment Booking System, Retell AI Voice Agent
 - **Sundas Naseem** — Lab Report & Prescription Analyzer, Symptom Checker & Medical Triage, RAG Knowledge Base Agent (Parts 1 & 2)
 
-### TypeScript serverless backend (in progress)
+### TypeScript serverless backend
 
-Maryum's modules are being ported from n8n to tested TypeScript serverless functions in [`serverless/`](serverless/). The n8n exports below stay as the design record.
+Maryum's modules are ported from n8n to tested TypeScript serverless functions in [`serverless/`](serverless/). The n8n exports below stay as the design record.
 
-- **Done:** department-based complaint management with **AI triage and routing**. Gemini decides priority and department, an emergency rule in code overrides it, low-confidence complaints go to a person, and keyword rules take over if the AI is down. It has a 50-case triage evaluation.
-- **Done:** the Retell voice agent's tools (availability, booking, rescheduling, cancellation, complaint status). This fixes double booking, unauthorised cancellation and slots that were never freed from the n8n flow.
-- **Next:** voice complaints and the browser "Start call" endpoint.
+- **Complaint management with AI triage and routing:** Gemini decides priority and department, an emergency rule in code overrides it, low-confidence complaints go to a person, and keyword rules take over if the AI is down. It has a 50-case triage evaluation.
+- **The Retell voice agent's tools:** availability, booking, rescheduling, cancellation and complaint status. This fixes double booking, unauthorised cancellation and slots that were never freed from the n8n flow.
+- **Voice complaints:** spoken complaints become text for the patient to check, then go through the same triage, filed on the web or during a call, with replies as text and speech. There's also a "Start call" endpoint for the browser, and an after-call summary on the page and by email.
 
 See [`serverless/README.md`](serverless/README.md) for the API, setup and evaluation.
 ---

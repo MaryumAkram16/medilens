@@ -45,6 +45,10 @@ export function testConfig(over: Partial<AppConfig> = {}): AppConfig {
     allowedOrigins: ['https://medilens-demo.example'],
     adminApiKey: 'admin-test-key',
     retellApiKey: null,
+    retellAgentId: null,
+    webCallPasscode: null,
+    webCall: { perIpPer10Min: 3, globalPerHour: 30 },
+    summarySecret: null,
     maxBodyBytes: 16 * 1024,
     rateLimit: { windowMs: 60_000, perIp: 10 },
     ...over,
@@ -60,3 +64,6 @@ export function post(path: string, body: unknown, headers: Record<string, string
 }
 
 export { LogEmailSender, MemoryRepository };
+
+/** The first bytes of a real WebM file, padded: enough to pass the audio check. */
+export const WEBM = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(64, 1)]);
