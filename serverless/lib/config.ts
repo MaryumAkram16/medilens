@@ -20,6 +20,8 @@ export interface AppConfig {
   webCall: { perIpPer10Min: number; globalPerHour: number };
   /** Signs after-call summary tokens. Defaults to a key derived from RETELL_API_KEY. */
   summarySecret: string | null;
+  /** Bearer token the scheduled job sends to POST /api/sla-sweep. The sweep is off without it. */
+  cronSecret: string | null;
   maxBodyBytes: number;
   rateLimit: { windowMs: number; perIp: number };
 }
@@ -74,6 +76,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
       globalPerHour: Number(get('WEB_CALL_MAX_PER_HOUR') || 30),
     },
     summarySecret: get('SUMMARY_SECRET') || get('RETELL_API_KEY') || null,
+    cronSecret: get('CRON_SECRET') || null,
     maxBodyBytes: 16 * 1024,
     rateLimit: { windowMs: 60_000, perIp: 10 }, // the n8n workflow's 10 requests per minute
   };

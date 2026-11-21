@@ -137,6 +137,11 @@ export class SupabaseRepository implements ComplaintRepository {
     return true;
   }
 
+  async claimOverdue(limit: number): Promise<ComplaintRecord[]> {
+    const res = await this.request('rpc/claim_overdue_complaints', { method: 'POST', body: JSON.stringify({ p_limit: limit }) });
+    return (await this.rows<ComplaintRecord>(res)).map((r) => ({ ...r, confidence: Number(r.confidence) }));
+  }
+
   async firstReviews(limit: number): Promise<ReviewedComplaint[]> {
     const q = new URLSearchParams({
       select: 'complaint_id,action,from_priority,from_department,to_priority,to_department,triage_source,first_review,note,created_at,complaints(complaint_code,details)',

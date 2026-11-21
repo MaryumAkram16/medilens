@@ -132,6 +132,25 @@ Staff confirm or correct the triage, and move a complaint through `Pending` → 
 
 (The numbers above are an example, not a measured result.)
 
+### `POST /api/sla-sweep` (scheduled job)
+
+**The self-healing part.** Every hour, a GitHub Action ([`sla-sweep.yml`](../.github/workflows/sla-sweep.yml)) calls this endpoint with `Authorization: Bearer <CRON_SECRET>`. Vercel's free plan only runs scheduled jobs daily, so the schedule runs on GitHub.
+
+**What the sweep does:**
+- It finds unresolved complaints that are past their department's target time (1 h for emergencies, 24 h for nursing, 72 h for billing, and so on).
+- It **claims them in the database first**, so two overlapping sweeps can never escalate the same complaint twice.
+- Then, for each one, it alerts the department (`[OVERDUE]`), tells the patient it has been escalated, and writes an audit entry.
+- **Patients no longer have to call to get an overdue complaint noticed.**
+
+**Details:**
+- **`200`:** `{ success, escalated, complaints: [{ complaint_code, department, priority, hours_open, alerted, patient_told }] }`. It has no patient details, so the Action can print it.
+- **When an email fails,** the failure is audited instead of retried: the complaint stays escalated, and the failed alert is visible in the audit log.
+- A failed sweep fails the GitHub run, and GitHub emails you.
+- **Setup:**
+  - in Vercel: `CRON_SECRET`
+  - in the GitHub repo: the secret `CRON_SECRET` (the same value) and the variable `MEDILENS_API_URL`
+  - The Action skips quietly until these are set.
+
 **`cases` are the reviewed complaints in the evaluation format,** so the model can be re-scored on real mistakes: save them as `reviewed.json` and run `npm run eval:triage:live -- reviewed.json`. They contain real patient text, so `reviewed*.json` is git-ignored. Don't commit them.
 
 ### `GET /api/health`
@@ -259,7 +278,7 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 
 ## Setup
 
-1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), [`002_appointments`](db/002_appointments.sql), [`003_voice`](db/003_voice.sql) and [`004_reviews`](db/004_reviews.sql), in that order, in the SQL editor. Each is idempotent and has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
+1. **Database (Supabase):** run [`db/001_complaints.sql`](db/001_complaints.sql), [`002_appointments`](db/002_appointments.sql), [`003_voice`](db/003_voice.sql), [`004_reviews`](db/004_reviews.sql) and [`005_sla`](db/005_sla.sql), in that order, in the SQL editor. Each is idempotent and has a rollback file. RLS is on with no policies, so only the service-role key used by these functions can read or write.
 2. **Vercel:** import the repository with **Root Directory = `serverless`**, then add the environment variables below. All endpoints run in **one function** ([`api/router.ts`](api/router.ts)), and `vercel.json` rewrites `/api/<route>` to it. That's because Vercel's Hobby plan allows at most 12 functions per deployment, and this backend has 16 endpoints. A test fails CI if `api/` ever grows past that limit.
 3. **Check:** `GET /api/health` should show `data_source: "supabase"` and `ai_triage: "gemini"`.
 
@@ -277,18 +296,19 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 | `RETELL_AGENT_ID` | for "Start call" | the agent browser calls connect to |
 | `WEB_CALL_PASSCODE` | no | visitors must enter this code to start a call |
 | `WEB_CALL_MAX_PER_IP`, `WEB_CALL_MAX_PER_HOUR` | no | call caps, default 3 per IP per 10 minutes and 30 per hour |
+| `CRON_SECRET` | for the deadline monitor | the token the hourly GitHub Action sends to `/api/sla-sweep` |
 | `SUMMARY_SECRET` | no | signs summary links. It defaults to a key derived from `RETELL_API_KEY`. |
 
 ## Tests
 
 ```bash
 npm ci
-npm test                 # 196 tests, plus 22 database tests when TEST_DATABASE_URL is set
+npm test                 # 202 tests, plus 23 database tests when TEST_DATABASE_URL is set
 npm run typecheck
 npm run eval:triage      # offline triage evaluation (no AI)
 ```
 
-CI runs the type check, all 218 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
+CI runs the type check, all 225 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation and `npm audit` on every pull request.
 
 ## Triage evaluation
 

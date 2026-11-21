@@ -1,0 +1,44 @@
+# Hourly deadline monitor for MediLens complaints. Calls POST /api/sla-sweep,
+# which escalates unresolved complaints past their department's target time.
+# (Vercel's Hobby plan only runs scheduled jobs daily, so GitHub runs it.)
+#
+# Setup: repository secret CRON_SECRET (the same value as CRON_SECRET in
+# Vercel) and repository variable MEDILENS_API_URL (e.g. https://medilens-api.vercel.app).
+# Skips quietly until both exist. A failed sweep fails the run, and GitHub emails you.
+name: Complaint deadline monitor
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sla-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run the sweep
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          API_URL: ${{ vars.MEDILENS_API_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$API_URL" ]; then
+            echo "::notice::CRON_SECRET or MEDILENS_API_URL is not set; skipping the sweep."
+            exit 0
+          fi
+          status=$(curl -sS -o response.json -w '%{http_code}' --max-time 60 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${API_URL%/}/api/sla-sweep")
+          # Only the counts and codes are printed: no patient details are in the response.
+          cat response.json; echo
+          if [ "$status" != "200" ]; then
+            echo "::error::Sweep failed with HTTP $status"
+            exit 1
+          fi
+          echo "### Escalated $(jq -r '.escalated' response.json) complaint(s)" >> "$GITHUB_STEP_SUMMARY"

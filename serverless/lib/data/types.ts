@@ -81,6 +81,12 @@ export interface ComplaintRepository {
   /** Returns false if a first review already exists (two staff saving at once). */
   addReview(review: NewReview): Promise<boolean>;
   firstReviews(limit: number): Promise<ReviewedComplaint[]>;
+  /**
+   * Deadline monitor (db/005): marks unresolved complaints past their
+   * department's target time as escalated and returns them. Each complaint is
+   * returned once, ever, even if two sweeps run at the same time.
+   */
+  claimOverdue(limit: number): Promise<ComplaintRecord[]>;
 }
 
 /** Who filed it, for duplicate detection: the email, or the phone's last 10 digits. Mirrors db/003. */
