@@ -96,6 +96,14 @@ function clientIp(request: Request): string {
   return (real || forwarded || 'unknown').slice(0, 64);
 }
 
+/**
+ * Retell attaches the whole call so far (transcript with word timings, tool calls,
+ * metadata) to every custom-function request and webhook, so a few minutes of
+ * talk easily passes the 16 KB browser limit. Signed Retell endpoints get 1 MiB
+ * (Vercel's own cap is 4.5 MB); the signature is still checked over every byte.
+ */
+const RETELL_MAX_BODY_BYTES = 1024 * 1024;
+
 async function readBody(request: Request, maxBytes: number): Promise<string | null> {
   const declared = Number(request.headers.get('content-length') ?? '0');
   if (Number.isFinite(declared) && declared > maxBytes) return null;
@@ -200,8 +208,11 @@ export function createApp(deps: AppDeps): App {
         json(status, { success: false, error_code: code, message, request_id: requestId }, requestId, extra);
       if (request.method !== 'POST') return say(405, 'This endpoint only accepts POST.', 'METHOD_NOT_ALLOWED', { allow: 'POST' });
       if (!config.retellApiKey) return say(503, 'The voice service is not switched on.', 'VOICE_NOT_CONFIGURED');
-      const raw = await readBody(request, config.maxBodyBytes);
-      if (raw === null) return say(413, 'That request was too large.', 'PAYLOAD_TOO_LARGE');
+      const raw = await readBody(request, RETELL_MAX_BODY_BYTES);
+      if (raw === null) {
+        log('warn', 'voice_payload_too_large', { request_id: requestId, tool, content_length: request.headers.get('content-length') });
+        return say(413, 'That request was too large.', 'PAYLOAD_TOO_LARGE');
+      }
       if (!(await verifyRetellSignature(raw, config.retellApiKey, request.headers.get(SIGNATURE_HEADER)))) {
         log('warn', 'voice_bad_signature', { request_id: requestId, tool });
         return say(401, 'This request could not be authorized.', 'UNAUTHORIZED');
@@ -589,8 +600,7 @@ export function createApp(deps: AppDeps): App {
       const requestId = randomUUID();
       if (request.method !== 'POST') return error(405, 'METHOD_NOT_ALLOWED', 'Use POST.', requestId, { allow: 'POST' });
       if (!config.retellApiKey) return error(503, 'VOICE_NOT_CONFIGURED', 'The voice service is not switched on.', requestId);
-      // Call events carry the whole transcript, so they get a larger limit.
-      const raw = await readBody(request, 1024 * 1024);
+      const raw = await readBody(request, RETELL_MAX_BODY_BYTES);
       if (raw === null) return error(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.', requestId);
       if (!(await verifyRetellSignature(raw, config.retellApiKey, request.headers.get(SIGNATURE_HEADER)))) {
         log('warn', 'webhook_bad_signature', { request_id: requestId });
