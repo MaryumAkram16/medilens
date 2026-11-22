@@ -769,3 +769,7 @@ tr.review-row {
   padding: 0.7rem 1.3rem;
   font-size: 1rem;
 }
+.crash {
+  margin: 4rem auto;
+  text-align: center;
+}
