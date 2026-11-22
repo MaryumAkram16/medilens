@@ -46,7 +46,11 @@ export function VoiceCall({ createCall = apiCreateWebCall, loadClient = loadRete
     },
     [],
   );
-  useEffect(() => transcriptEnd.current?.scrollIntoView?.({ block: 'nearest' }), [lines]);
+  // Braces matter: newer Chrome returns a Promise from scrollIntoView, and an effect
+  // that returns anything but a cleanup function crashes React (white page).
+  useEffect(() => {
+    transcriptEnd.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [lines]);
 
   async function loadSummary() {
     if (!ids.current) return;

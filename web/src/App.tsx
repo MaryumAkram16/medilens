@@ -34,7 +34,9 @@ const NAV: { route: Route; label: string }[] = [
 export function App() {
   const route = useRoute();
   const [menu, setMenu] = useState(false);
-  useEffect(() => setMenu(false), [route]);
+  useEffect(() => {
+    setMenu(false);
+  }, [route]);
 
   return (
     <>
