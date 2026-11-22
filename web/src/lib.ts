@@ -75,3 +75,35 @@ export const tabStore = {
 
 export const formatDate = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' });
+
+/** Copies text to the clipboard; falls back to a hidden textarea where the async API is blocked. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through to the old way */
+  }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** The transcript as plain text for copying, with the call summary at the end when there is one. */
+export function transcriptText(lines: readonly Line[], summary?: string): string {
+  const body = lines.map((l) => `${l.speaker === 'you' ? 'You' : 'MediLens'}: ${l.text}`).join('\n');
+  return summary ? `${body}\n\nCall summary:\n${summary}` : body;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, callSummary as fetchSummary, createWebCall as apiCreateWebCall, type CallSummary } from '../api';
-import { toLines, type Line } from '../lib';
+import { toLines, transcriptText, type Line } from '../lib';
+import { CopyButton } from './CopyButton';
 
 /** The parts of Retell's web client this page uses (injectable for tests). */
 export interface CallClient {
@@ -37,7 +38,14 @@ export function VoiceCall({ createCall = apiCreateWebCall, loadClient = loadRete
   const ids = useRef<{ callId: string; token: string } | null>(null);
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => () => client.current?.stopCall(), []);
+  useEffect(
+    () => () => {
+      // Leaving the page: detach first so the hang-up doesn't update a component that's gone.
+      client.current?.removeAllListeners();
+      client.current?.stopCall();
+    },
+    [],
+  );
   useEffect(() => transcriptEnd.current?.scrollIntoView?.({ block: 'nearest' }), [lines]);
 
   async function loadSummary() {
@@ -153,7 +161,15 @@ export function VoiceCall({ createCall = apiCreateWebCall, loadClient = loadRete
 
       {(inCall || phase === 'ended') && (
         <section className="transcript" aria-live="polite" aria-label="Live transcript">
-          <h3>Live transcript</h3>
+          <div className="transcript-head">
+            <h3>{phase === 'ended' ? 'Transcript' : 'Live transcript'}</h3>
+            {lines.length > 0 && (
+              <CopyButton
+                label="📋 Copy transcript"
+                text={transcriptText(lines, summary ? (summary.actions.length ? summary.actions.map((a) => `• ${a.text}`).join('\n') : summary.text) : undefined)}
+              />
+            )}
+          </div>
           {lines.length === 0 ? (
             <p className="muted">The conversation will appear here as you talk.</p>
           ) : (
