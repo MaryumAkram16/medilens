@@ -312,7 +312,7 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 | `DATA_SOURCE` | yes in production | `supabase`, or `demo` for in-memory synthetic data |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | with `supabase` | server only, never sent to a browser |
 | `GEMINI_API_KEY` | recommended | AI triage. Without it, keyword rules triage everything and flag it for review. |
-| `GEMINI_MODEL` | no | default `gemini-3.6-flash` |
+| `GEMINI_MODEL` | no | default `gemini-3.5-flash-lite` (see the live evaluation for why) |
 | `SMTP_USER`, `SMTP_APP_PASSWORD`, `MAIL_FROM` | no | Gmail SMTP. Without them, emails are logged instead of sent. |
 | `ALLOWED_ORIGINS` | for a browser frontend | comma-separated origins, such as your demo page |
 | `ADMIN_API_KEY` | for the summary | the summary endpoint is off without it |
@@ -351,7 +351,23 @@ CI runs the type check, all 261 tests (the database tests against a Postgres 16 
 | False emergency alarms | 1 (C39: a billing complaint mentioning a past chest pain) |
 | Sent to human review | 50/50 (every keyword-only decision) |
 
-**With Gemini:** `npm run eval:triage:live` (needs `GEMINI_API_KEY`), or the manual *Triage live evaluation* workflow. Results will be recorded here after the first run.
+**With Gemini** (live run on 2026-11-22, `gemini-3.5-flash-lite`, [workflow run](https://github.com/MaryumAkram16/medilens/actions/runs/45030034911)):
+
+| Metric | Result |
+|---|---|
+| Department correct | 44/50 (88%) |
+| Priority correct | 38/50 (76%) |
+| Both correct | 34/50 (68%) |
+| Emergencies caught | 6/6 (100%) |
+| False emergency alarms | 1 (C39, raised by the emergency rule in code, as without AI) |
+| Sent to human review | 14/50 (28%) |
+| Answered by the AI | 41/50; 9 fell back to keyword rules when Google returned HTTP 503 |
+
+**What it shows:** on this set the AI is about as accurate as the keyword rules, but it sends 14 complaints to staff instead of all 50. Its mistakes are mostly a priority one step off (sheets not changed for three days marked Low, not Medium; side effects not explained marked High, not Medium) and a few departments (refused treatment in the OPD sent to appointments; praise for ward staff sent to nursing). The prompt-injection case kept its High priority, but went to patient relations instead of nursing. Because 9 answers came from the fallback, these figures mix AI and keyword decisions, and each case is 2 percentage points.
+
+**Why Flash-Lite:** the first live run used `gemini-3.6-flash` ([run](https://github.com/MaryumAkram16/medilens/actions/runs/45028861730)). It answered only 9 of 50: the rest timed out even with 30 seconds, or got HTTP 503 or 429 on the free tier, so its score was really the keyword rules'. The default is now `gemini-3.5-flash-lite`, and the classifier asks for a low thinking level.
+
+Run it again with `npm run eval:triage:live` (needs `GEMINI_API_KEY`), or the manual *Triage live evaluation* workflow.
 
 **Limits:**
 - The keyword rules were written before this set and **not tuned to it**, so the offline score is honest but modest.
