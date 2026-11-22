@@ -556,10 +556,10 @@ export function createApp(deps: AppDeps): App {
       }
       try {
         const call = await createWebCall(config.retellAgentId);
-        log('info', 'web_call_created', { request_id: requestId, call_id: call.call_id });
+        log('info', 'web_call_created', { request_id: requestId, call_id: call.call_id, transport: call.transport });
         return json(
           201,
-          { success: true, call_id: call.call_id, access_token: call.access_token, summary_token: summaryToken(call.call_id, tokenKey) },
+          { success: true, ...call, summary_token: summaryToken(call.call_id, tokenKey) },
           requestId,
           g.cors,
         );

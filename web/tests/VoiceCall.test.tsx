@@ -2,7 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api';
-import { VoiceCall, type CallClient } from '../src/components/VoiceCall';
+import { VoiceCall, startConfig, type CallClient } from '../src/components/VoiceCall';
 
 function fakeClient() {
   const handlers = new Map<string, (...a: unknown[]) => void>();
@@ -18,7 +18,7 @@ function fakeClient() {
   return client;
 }
 
-const webCall = { success: true as const, call_id: 'call_1', access_token: 'tok', summary_token: 'sum' };
+const webCall = { success: true as const, call_id: 'call_1', access_token: 'tok', summary_token: 'sum', transport: 'gateway' as const, ice_servers: [{ urls: 'turn:turn.example.test', username: 'u', credential: 'c' }] };
 
 describe('VoiceCall', () => {
   it('runs a call: connect, live transcript, end, summary', async () => {
@@ -33,7 +33,7 @@ describe('VoiceCall', () => {
     render(<VoiceCall createCall={async () => webCall} loadClient={async () => client} getSummary={getSummary} />);
 
     await user.click(screen.getByRole('button', { name: 'Call the MediLens agent' }));
-    expect(client.startCall).toHaveBeenCalledWith({ accessToken: 'tok' });
+    expect(client.startCall).toHaveBeenCalledWith({ accessToken: 'tok', callId: 'call_1', transport: 'gateway', iceServers: [{ urls: 'turn:turn.example.test', username: 'u', credential: 'c' }] });
 
     act(() => client.emit('call_started'));
     expect(screen.getByText('LISTENING · TAP TO END')).toBeTruthy();
@@ -99,5 +99,27 @@ describe('VoiceCall', () => {
     render(<VoiceCall createCall={async () => webCall} loadClient={async () => client} />);
     await user.click(screen.getByRole('button', { name: 'Call the MediLens agent' }));
     expect((await screen.findByRole('alert')).textContent).toContain('Allow the microphone');
+  });
+});
+
+describe('startConfig', () => {
+  it('uses the transport Retell named, and LiveKit when it named none', () => {
+    expect(startConfig({ call_id: 'c', access_token: 't', transport: 'gateway', ice_servers: [{ urls: 'stun:s.example.test' }] })).toEqual({
+      accessToken: 't',
+      callId: 'c',
+      transport: 'gateway',
+      iceServers: [{ urls: 'stun:s.example.test' }],
+    });
+    expect(startConfig({ call_id: 'c', access_token: 't' })).toEqual({ accessToken: 't', callId: 'c', transport: 'livekit' });
+  });
+
+  it('shows the reason Retell gives when the call cannot connect', async () => {
+    const user = userEvent.setup();
+    const client = fakeClient();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    client.startCall = vi.fn(async () => client.emit('error', 'gateway WHIP POST failed: 401'));
+    render(<VoiceCall createCall={async () => webCall} loadClient={async () => client} />);
+    await user.click(screen.getByRole('button', { name: 'Call the MediLens agent' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('gateway WHIP POST failed: 401');
   });
 });
