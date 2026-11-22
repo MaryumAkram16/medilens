@@ -115,6 +115,29 @@ describe('submit_complaint (voice tool)', () => {
     expect(again.message).toMatch(/already filed this same complaint/);
   });
 
+  it('accepts the large envelopes Retell really sends (whole transcript attached)', async () => {
+    const { app } = setup();
+    // A few minutes of talk with word-level timings: ~300 KB, far past the 16 KB browser limit.
+    const words = Array.from({ length: 400 }, (_, i) => ({ word: `word${i}`, start: i / 3, end: i / 3 + 0.2 }));
+    const transcript_object = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 ? 'user' : 'agent', content: 'Some long sentence spoken during the call. '.repeat(20), words }));
+    const payload = {
+      name: 'submit_complaint',
+      call: { call_id: 'call_big', transcript: 'Agent: hello\nUser: hi\n'.repeat(500), transcript_object },
+      args: { name: 'Test Patient', phone_no: '03001234567', details: 'I was charged twice for my blood test.' },
+    };
+    const req = await signed('/api/submit-complaint', payload);
+    expect(JSON.stringify(payload).length).toBeGreaterThan(200 * 1024);
+    const res = await app.submitVoiceComplaint(req);
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+  });
+
+  it('still refuses bodies over 1 MiB', async () => {
+    const { app } = setup();
+    const payload = { name: 'submit_complaint', call: { call_id: 'c', transcript: 'x'.repeat(1024 * 1024 + 10) }, args: {} };
+    expect((await app.submitVoiceComplaint(await signed('/api/submit-complaint', payload))).status).toBe(413);
+  });
+
   it('needs a valid Retell signature', async () => {
     const { app } = setup();
     const res = await app.submitVoiceComplaint(post('/api/submit-complaint', JSON.stringify(envelope({ name: 'x', phone_no: '03001234567', details: 'long enough text' }))));
