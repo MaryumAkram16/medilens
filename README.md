@@ -18,6 +18,28 @@ Maryum's modules are ported from n8n to tested TypeScript serverless functions i
 - **Voice complaints:** spoken complaints become text for the patient to check, then go through the same triage, filed on the web or during a call, with replies as text and speech. There's also a "Start call" endpoint for the browser, and an after-call summary on the page and by email.
 
 See [`serverless/README.md`](serverless/README.md) for the API, setup and evaluation.
+
+### Live demo
+
+**Website: [medilens-web-theta.vercel.app](https://medilens-web-theta.vercel.app)** (API: `medilens-api.vercel.app`, website code in [`web/`](web/))
+
+- **Voice Agent:** tap to call the Retell agent from the browser. Book, reschedule or cancel an appointment, or file and check a complaint, all in one call. A live transcript can be copied, and a summary of what was done appears when the call ends. *Calls cost Retell minutes, so they need a demo code, available on request.*
+- **Complaint Center:** type or speak a complaint. Gemini picks the department and priority, and the answer is shown as text you can copy and can be read aloud.
+- **Track** and **Staff Desk**: check a complaint's status, and review, correct and resolve the AI's routing (staff key).
+
+Synthetic data only. This is a portfolio demo, not a medical service. In an emergency, call **1122**.
+
+### What broke when it went live, and the fixes
+
+The first real calls found four problems that the tests had missed. Each fix now has a test:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| White page after entering the demo code | Newer Chrome returns a Promise from `scrollIntoView`; the auto-scroll effect handed it to React as a "cleanup" | Effects return nothing, plus a regression test and an error boundary ([#10](https://github.com/MaryumAkram16/medilens/pull/10)) |
+| "Connecting…", then the call dropped with no microphone prompt; Retell logged *user not joined* | Retell now issues tokens for its new **gateway** media stack. The API forwarded only the token, so the browser joined via LiveKit | The API passes `transport` and `ice_servers` through, and the browser uses them ([#11](https://github.com/MaryumAkram16/medilens/pull/11)) |
+| Agent said "technical issue" when filing a complaint (HTTP 413) | Retell attaches the whole call transcript to every tool request, which passed the 16 KB form limit | Signed Retell requests accept up to 1 MiB, with the signature still checked ([#12](https://github.com/MaryumAkram16/medilens/pull/12)) |
+| A billing complaint was routed to the lab | Gemini took over 12 s and timed out, so keyword rules ("blood test") decided; the complaint was flagged for staff review as designed | Low thinking level for the classifier, one retry if a model rejects the setting, and response time logged ([#13](https://github.com/MaryumAkram16/medilens/pull/13)) |
+
 ---
 
 ## Table of Contents

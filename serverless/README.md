@@ -176,8 +176,9 @@ Turns a recorded complaint into text. The patient then **checks and edits the te
 
 Starts a browser voice call with your Retell agent (`RETELL_AGENT_ID`). The body is `{}`, or `{ "passcode": "..." }` when `WEB_CALL_PASSCODE` is set.
 
-- **`201`:** `{ success, call_id, access_token, summary_token }`
-  - Pass `access_token` to the Retell web client to join the call. It is short-lived, and the API key never leaves the server.
+- **`201`:** `{ success, call_id, access_token, transport, ice_servers?, url?, summary_token }`
+  - Join with the Retell web client: `startCall({ accessToken: access_token, callId: call_id, transport, iceServers: ice_servers })`. The token is short-lived, and the API key never leaves the server.
+  - **Pass `transport` through.** Retell issues tokens for two media stacks (`gateway`, the current default, and `livekit`), and the tokens look alike. A gateway token used on the LiveKit path fails before the microphone prompt, and Retell records the call as *user not joined*. A missing `transport` means `livekit`.
   - Keep `call_id` and `summary_token` for the after-call summary.
 - **Limits, because calls cost Retell minutes:**
   - 3 calls per IP per 10 minutes, and 30 per hour overall (`WEB_CALL_MAX_PER_IP`, `WEB_CALL_MAX_PER_HOUR`)
@@ -203,20 +204,20 @@ Set this as the agent's webhook URL in Retell. It verifies Retell's signature. W
 
 ## Voice agent tools (Retell)
 
-Each tool is a Retell **custom function** that POSTs `{ name, call, args }` here. Every request must carry a valid `x-retell-signature`, checked with `RETELL_API_KEY` over the exact body. Signatures older than five minutes are refused, so a captured request can't be replayed. The n8n flow only checked that the header existed.
+Each tool is a Retell **custom function** that POSTs `{ name, call, args }` here. Retell puts the whole call so far (transcript with word timings) in `call`, so these requests may be up to 1 MiB, while browser endpoints stay at 16 KB. Every request must carry a valid `x-retell-signature`, checked with `RETELL_API_KEY` over the exact body. Signatures older than five minutes are refused, so a captured request can't be replayed. The n8n flow only checked that the header existed.
 
 Every answer is JSON with `success` and a `message` written for the agent to **say**. A taken slot, a wrong code or a missing detail returns `200` with `success: false` and a sentence the agent can use to recover. Only a bad signature (`401`), too many requests in one call (`429`, 30 per minute) or an outage (`503`) are errors.
 
 | Retell tool | URL | `args` |
 |---|---|---|
-| `doctor_availibility` | `/api/doctor-availability` | `department` (spoken is fine: "heart", "bachon ka doctor"), optional `date` YYYY-MM-DD |
+| `doctor_availability` | `/api/doctor-availability` | `department` (spoken is fine: "heart", "bachon ka doctor"), optional `date` YYYY-MM-DD |
 | `book_appointment` | `/api/book-appointment` | `name`, `phone_no`, optional `email`, `schedule_id` (from availability) |
 | `appointment_check` | `/api/appointment-check` | `appointment_id`, `phone_no` |
 | `check_slot` | `/api/confirm-reschedule` | `appointment_id`, `phone_no`, and `schedule_id` **or** `appointment_date` + `slot_start_time` |
-| `cancel-appointment-` | `/api/cancel-status` | `appointment_id`, `phone_no` |
+| `cancel_status` | `/api/cancel-status` | `appointment_id`, `phone_no` |
 | `confirm_cancellation` | `/api/confirm-cancellation` | `appointment_id`, `phone_no` |
 | `complaint_check` | `/api/complaint-check` | `complaint_id`, plus `phone_no` or `email` |
-| `submit_complaint` (new) | `/api/submit-complaint` | `name`, `phone_no`, `details`, optional `email` |
+| `submit_complaint` | `/api/submit-complaint` | `name`, `phone_no`, `details`, optional `email` |
 
 `submit_complaint` runs the same AI triage as the web form, and the agent reads back the department and the complaint code. If the caller describes an emergency, the reply **starts with the emergency notice**. Email is optional by voice, because spelling an email over the phone is unreliable. Duplicates are then detected by phone number.
 
@@ -327,13 +328,13 @@ Demo doctors and specialties are synthetic, and slots are topped up for the next
 
 ```bash
 npm ci
-npm test                 # 230 tests, plus 23 database tests when TEST_DATABASE_URL is set
+npm test                 # 238 tests, plus 23 database tests when TEST_DATABASE_URL is set
 npm run typecheck
 npm run eval:triage      # offline triage evaluation (no AI)
 npm run eval:voice       # 24 voice agent scenarios
 ```
 
-CI runs the type check, all 253 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation, the voice scenarios and `npm audit` on every pull request.
+CI runs the type check, all 261 tests (the database tests against a Postgres 16 service, including a two-connection double-booking race), the offline evaluation, the voice scenarios and `npm audit` on every pull request.
 
 ## Triage evaluation
 
