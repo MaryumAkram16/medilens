@@ -60,6 +60,8 @@ export interface GeminiOptions {
   fetch?: typeof fetch;
   /** Called with a short reason when the AI result is discarded. Never receives the key. */
   onFailure?: (reason: string) => void;
+  /** Called with how long Gemini took to answer, for the logs. */
+  onTiming?: (ms: number) => void;
 }
 
 export type Classifier = (text: string) => Promise<AiTriage | null>;
@@ -73,9 +75,14 @@ export function geminiClassifier(opts: GeminiOptions): Classifier {
   };
 
   return async (text: string) => {
-    let res: Response;
-    try {
-      res = await doFetch(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
+    const started = Date.now();
+    const deadline = started + (opts.timeoutMs ?? 12_000);
+    // Flash models "think" before answering unless told not to; for a short
+    // classification that made replies take over 12 s and the AI timed out.
+    // Low thinking keeps it to a few seconds. If a model rejects the setting
+    // (levels differ between versions), retry once without it.
+    const send = (thinking: boolean) =>
+      doFetch(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': opts.apiKey },
         body: JSON.stringify({
@@ -86,14 +93,20 @@ export function geminiClassifier(opts: GeminiOptions): Classifier {
             maxOutputTokens: 2048,
             responseMimeType: 'application/json',
             responseSchema: RESPONSE_SCHEMA,
+            ...(thinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
           },
         }),
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 12_000),
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
       });
+    let res: Response;
+    try {
+      res = await send(true);
+      if (res.status === 400) res = await send(false);
     } catch (err) {
-      return fail(err instanceof Error && err.name === 'TimeoutError' ? 'timeout' : 'network_error');
+      return fail(err instanceof Error && err.name === 'TimeoutError' ? `timeout after ${Date.now() - started} ms` : 'network_error');
     }
     if (!res.ok) return fail(`http_${res.status}`);
+    opts.onTiming?.(Date.now() - started);
 
     let raw: string;
     try {

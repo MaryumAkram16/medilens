@@ -50,6 +50,30 @@ describe('geminiClassifier', () => {
     expect(body.generationConfig.responseSchema.properties.department.enum).toContain('patient_relations');
   });
 
+  it('asks for low thinking so a short classification answers in seconds', async () => {
+    const { calls, fetchFn } = capture(() => reply(JSON.stringify(good)));
+    const timings: number[] = [];
+    await geminiClassifier({ apiKey: 'k', fetch: fetchFn, onTiming: (ms) => timings.push(ms) })('x');
+    expect(JSON.parse(String(calls[0]!.init.body)).generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+    expect(timings).toHaveLength(1);
+  });
+
+  it('retries once without the thinking setting if the model rejects it', async () => {
+    let n = 0;
+    const { calls, fetchFn } = capture(() => (n++ === 0 ? reply('{"error":"thinking level not supported"}', 400) : reply(JSON.stringify(good))));
+    await expect(geminiClassifier({ apiKey: 'k', fetch: fetchFn })('x')).resolves.toEqual(good);
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(String(calls[1]!.init.body)).generationConfig.thinkingConfig).toBeUndefined();
+  });
+
+  it('does not retry other errors', async () => {
+    const reasons: string[] = [];
+    const { calls, fetchFn } = capture(() => reply('{}', 500));
+    await expect(geminiClassifier({ apiKey: 'k', fetch: fetchFn, onFailure: (r) => reasons.push(r) })('x')).resolves.toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(reasons).toEqual(['http_500']);
+  });
+
   it('uses GEMINI_MODEL when given', async () => {
     const { calls, fetchFn } = capture(() => reply(JSON.stringify(good)));
     await geminiClassifier({ apiKey: 'k', model: 'gemini-custom', fetch: fetchFn })('x');
@@ -98,6 +122,8 @@ describe('geminiClassifier', () => {
       onFailure: (r) => reasons.push(r),
     });
     await expect(slow('x')).resolves.toBeNull();
-    expect(reasons).toEqual(['network_error', 'timeout']);
+    expect(reasons).toHaveLength(2);
+    expect(reasons[0]).toBe('network_error');
+    expect(reasons[1]).toMatch(/^timeout after \d+ ms$/);
   });
 });

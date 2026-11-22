@@ -132,6 +132,7 @@ export function createApp(deps: AppDeps): App {
             apiKey: config.gemini.apiKey,
             model: config.gemini.model,
             onFailure: (reason) => log('warn', 'ai_triage_failed', { reason }),
+            onTiming: (ms) => log('info', 'ai_triage_timing', { ms }),
           })
         : null;
   const service = new ComplaintService({
