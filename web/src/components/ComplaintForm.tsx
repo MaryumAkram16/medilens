@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError, submitComplaint as apiSubmit, type ComplaintResult, type Priority } from '../api';
 import { speak, stopSpeaking } from '../lib';
+import { CopyButton } from './CopyButton';
 import { Recorder } from './Recorder';
 
 const TYPES = ['Medical Care Issues', 'Billing Problems', 'Staff Behavior', 'Appointments', 'Pharmacy', 'Lab Reports', 'Cleanliness & Facilities', 'Other'];
@@ -64,7 +65,9 @@ export function ComplaintForm({ submit = apiSubmit, transcribe }: ComplaintFormP
         <dl className="facts">
           <div>
             <dt>Your code</dt>
-            <dd className="code">{result.complaint_code}</dd>
+            <dd className="code">
+              {result.complaint_code} <CopyButton label="Copy" text={result.complaint_code} />
+            </dd>
           </div>
           <div>
             <dt>Priority</dt>
@@ -77,12 +80,14 @@ export function ComplaintForm({ submit = apiSubmit, transcribe }: ComplaintFormP
             <dd>{result.expected_response_hours} hours</dd>
           </div>
         </dl>
+        <p className="answer">{result.spoken_message}</p>
         {result.needs_review && <p className="muted small">A member of staff will check where this goes, so it reaches the right team.</p>}
         <p className="muted small">Keep your code to track the complaint. {form.email ? 'A copy has been emailed to you.' : ''}</p>
         <div className="row">
           <button className="btn btn-outline" type="button" onClick={() => speak(result.spoken_message)}>
             🔊 Read aloud
           </button>
+          <CopyButton label="📋 Copy answer" text={`${result.spoken_message}\nComplaint code: ${result.complaint_code}`} />
           <button
             className="btn"
             type="button"
