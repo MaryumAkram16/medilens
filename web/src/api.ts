@@ -86,6 +86,10 @@ export interface WebCall {
   call_id: string;
   access_token: string;
   summary_token: string;
+  /** Which media stack issued the token. Retell's tokens look alike, so the client must be told. */
+  transport?: 'gateway' | 'livekit';
+  ice_servers?: { urls: string | string[]; username?: string; credential?: string }[];
+  url?: string;
 }
 
 export const createWebCall = (passcode: string | undefined, f?: Fetch) =>

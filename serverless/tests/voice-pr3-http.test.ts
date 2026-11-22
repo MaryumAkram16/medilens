@@ -29,7 +29,7 @@ function setup(over: Parameters<typeof testConfig>[0] = {}, opts: { transcriber?
     createWebCall: async (agentId) => {
       webCalls.push(agentId);
       if (opts.webCallFails) throw new Error('retell down');
-      return { call_id: `call_web_${webCalls.length}`, access_token: 'short-lived-token' };
+      return { call_id: `call_web_${webCalls.length}`, access_token: 'short-lived-token', transport: 'gateway' as const, ice_servers: [{ urls: 'turn:turn.example.test:3478', username: 'u', credential: 'c' }] };
     },
     now: () => NOW,
   });
@@ -132,6 +132,8 @@ describe('POST /api/create-web-call', () => {
       success: true,
       call_id: 'call_web_1',
       access_token: 'short-lived-token',
+      transport: 'gateway',
+      ice_servers: [{ urls: 'turn:turn.example.test:3478', username: 'u', credential: 'c' }],
       summary_token: summaryToken('call_web_1', summaryKey(KEY)),
     });
     expect(res.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);

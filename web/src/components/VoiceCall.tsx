@@ -4,8 +4,16 @@ import { toLines, transcriptText, type Line } from '../lib';
 import { CopyButton } from './CopyButton';
 
 /** The parts of Retell's web client this page uses (injectable for tests). */
+export interface StartConfig {
+  accessToken: string;
+  callId?: string;
+  transport?: 'gateway' | 'livekit';
+  iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
+  url?: string;
+}
+
 export interface CallClient {
-  startCall(config: { accessToken: string }): Promise<void>;
+  startCall(config: StartConfig): Promise<void>;
   stopCall(): void;
   mute(): void;
   unmute(): void;
@@ -17,6 +25,20 @@ const loadRetell = async (): Promise<CallClient> => {
   const { RetellWebClient } = await import('retell-client-js-sdk');
   return new RetellWebClient() as unknown as CallClient;
 };
+
+/**
+ * How to join: Retell tells us which media stack issued the token. A gateway
+ * token sent down the LiveKit path fails before the mic prompt ("user not joined").
+ */
+export function startConfig(call: { call_id: string; access_token: string; transport?: 'gateway' | 'livekit'; ice_servers?: StartConfig['iceServers']; url?: string }): StartConfig {
+  return {
+    accessToken: call.access_token,
+    callId: call.call_id,
+    transport: call.transport ?? 'livekit',
+    ...(call.ice_servers?.length ? { iceServers: call.ice_servers } : {}),
+    ...(call.url ? { url: call.url } : {}),
+  };
+}
 
 type Phase = 'idle' | 'passcode' | 'connecting' | 'live' | 'ended' | 'error';
 
@@ -94,12 +116,14 @@ export function VoiceCall({ createCall = apiCreateWebCall, loadClient = loadRete
         // The tools log what they did during the call, so the summary is ready now.
         void loadSummary();
       });
-      c.on('error', () => {
-        setError('The call dropped. Please try again.');
+      c.on('error', ((reason?: unknown) => {
+        console.error('MediLens call error', reason);
+        const detail = typeof reason === 'string' && reason && reason !== 'Error starting call' ? ` (${reason})` : '';
+        setError(`The call couldn't connect${detail}. Check your microphone and connection, then try again.`);
         setPhase('error');
         c.stopCall();
-      });
-      await c.startCall({ accessToken: call.access_token });
+      }) as never);
+      await c.startCall(startConfig(call));
     } catch {
       setError('Microphone or connection problem. Allow the microphone and try again.');
       setPhase('error');
