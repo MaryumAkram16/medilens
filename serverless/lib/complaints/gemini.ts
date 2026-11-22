@@ -7,7 +7,10 @@ import { z } from 'zod';
 import { DEPARTMENTS, DEPARTMENT_CODES, PRIORITIES, SENTIMENTS } from './catalog.js';
 import type { AiTriage } from './triage.js';
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+// Flash-Lite: in the live evaluation (2026-11-22) gemini-3.6-flash answered only
+// 9 of 50 complaints on the free tier (timeouts even at 30 s, 503s, 429s), while
+// gemini-3.5-flash-lite answered 41 of 50 with the same accuracy. See README.
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 export const aiTriageSchema = z.object({
