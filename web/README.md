@@ -1,5 +1,7 @@
 # MediLens website
 
+**Live: [medilens-web-theta.vercel.app](https://medilens-web-theta.vercel.app)** (voice calls need a demo code, available on request).
+
 The patient- and staff-facing site for the MediLens API (`../serverless`). It uses the original MediLens look: teal, Playfair Display headings and Poppins body text.
 
 | Page | Hash | What it does |
@@ -16,7 +18,7 @@ No secrets live in the site. The Retell and Gemini keys stay on the API. Staff t
 ```bash
 npm ci
 npm run dev        # http://localhost:5173, talks to VITE_API_URL
-npm test           # Vitest + Testing Library
+npm test           # 33 tests (Vitest + Testing Library)
 npm run build
 ```
 
